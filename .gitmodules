@@ -1,0 +1,3 @@
+[submodule "PyKPartiteKClique"]
+	path = PyKPartiteKClique
+	url = git@github.com:kliem/PyKPartiteKClique.git
