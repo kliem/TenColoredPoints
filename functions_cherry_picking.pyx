@@ -1,5 +1,10 @@
 # cython: cdivision=True
-# distutils: extra_compile_args=-O3 -march=native
+# distutils: depends = KPartiteKClique/k_partite_k_clique.cpp KPartiteKClique/k_partite_k_clique.h
+# distutils: sources = KPartiteKClique/k_partite_k_clique.cpp
+# distutils: include_dirs = KPartiteKClique
+# distutils: extra_compile_args=-O3 -march=native -std=c++11
+# distutils: language = c++
+
 
 from sage.misc.cachefunc import cached_method, cached_function
 from sage.structure.sage_object cimport SageObject
@@ -8,13 +13,25 @@ from sage.ext.memory_allocator cimport MemoryAllocator
 from sage.rings.all import ZZ
 from sage.misc.persist import save
 from sage.misc.misc import cputime
+from cysignals.signals cimport sig_on, sig_off
 
 cimport cython
 
+
 import gc
-from sage.data_structures.bitset cimport Bitset, bitset_t
+from sage.data_structures.bitset cimport Bitset
+from sage.data_structures.bitset_base cimport bitset_next
 from libc.stdint                 cimport uint64_t
 from libc.stdio                     cimport FILE, fopen, fclose, fwrite, fread
+
+from libcpp cimport bool
+
+cdef extern from "KPartiteKClique/k_partite_k_clique.h":
+    cdef cppclass KPartiteKClique:
+        KPartiteKClique(bool **, int n_vertices, int* first_per_part, int k)
+        KPartiteKClique()
+        bool next()
+        const int* k_clique()
 
 def color_iterator():
     """
@@ -151,19 +168,19 @@ def pseudo_order_type_iterator(int n=10, path="/storage/mi/kliem/OrderSets/10"):
 
     fclose(fp)
 
-def write_all_colors(start=0, end=2**20):
+def check_all_colors(start=0, end=2**20):
     r"""
-    Write down for each order set the possible counter example color indices, if any.
+    Check for each order set the possible counter example color indices, if any.
     """
-    return _write_all_colors(start, end, OrderTypesIterator())
+    return _check_all_colors(start, end, OrderTypesIterator())
 
-def write_all_colors_pseudo(start=0, end=2**20):
+def check_all_colors_pseudo(start=0, end=2**20):
     r"""
-    Write down for each pseoduo order set the possible counter example color indices, if any.
+    Check for each pseoduo order set the possible counter example color indices, if any.
     """
-    return _write_all_colors(start, end, pseudo_order_type_iterator(10, "/srv/public/kliem/OrderSets/10"))
+    return _check_all_colors(start, end, pseudo_order_type_iterator(10, "/srv/public/kliem/OrderSets/10"))
 
-def _write_all_colors(start, end, iterator):
+def _check_all_colors(start, end, iterator):
     """
     See above.
     """
@@ -175,10 +192,11 @@ def _write_all_colors(start, end, iterator):
         O = OrientedMatroid(O1)
         if i % 1000 == 0:
             print("currently doing: ", i)
-        colors = tuple(poss_color_finder(O))
-        if colors:
-            print("found one: ", i, " ", len(colors))
-            save((i, colors), "/home/mi/kliem/Dokumente/TverbergNew/possible_colors/{}".format(i))
+        try:
+            _ = poss_color_finder(O)
+        except AssertionError:
+            # There appears to be a counter example.
+            raise AssertionError("found counterexample at index {}".format(i))
 
 def orientation(p1, p2, p3):
     # to find the orientation of
@@ -1046,314 +1064,68 @@ def poss_color_finder(OrientedMatroid O):
     There exists some setup with the intersections so that the colors don't have a Tverberg Partition.
     """
     cdef MemoryAllocator mem = MemoryAllocator()
-    cdef clique_finder_struct s
-    cdef int i,j,k
     cdef Bitset somea  # type awareness of cython
+    cdef int i, j
 
-    # Some trivial initializations for the clique finder structure.
-    s.pos = 0
-    s.n = O.n_intersection_points()
-    s.m = n_colors()
-    s.m_limbs = ((s.m-1)//256+1)*4
-    s.n_limbs = ((s.n-1)//4+1)*4
-    cdef Bitset all_colors_local = _all_colors_local(s.m, s.m_limbs)
-    capacity_64 = tuple(Bitset([j], capacity=64) for j in range(64))
-    complete_poss = tuple(Bitset(range(O._n_poss(index)), capacity=64) for index in range(s.n))
+    cdef int k = O.n_intersection_points() + 1
+    cdef int* first_per_part = <int*> mem.allocarray(k, sizeof(int))
+    cdef int counter = 0
+    first_per_part[0] = 0
+    for i in range(k-1):
+        counter += O._n_poss(i)
+        first_per_part[i+1] = counter
 
-    s.counter = 0
+    cdef int num_colors = n_colors()
 
-    # 1. Choices and final_choice
-    s.final_choice = NULL
-    s.choices = <int**> mem.allocarray(s.n+1, sizeof(int*))
-    for i in range(s.n+1):
-        s.choices[i] = <int*> mem.allocarray(s.n, sizeof(int))
-    for i in range(s.n):
-        # We start with no choices made (defined as -1 in the first iteration step).
-        s.choices[0][i] = -1
+    cdef int n = counter + num_colors
 
-    # 2. Selections
-    # At each step we save, which selection we made to further specify our choice.
-    s.selections = <int*> mem.allocarray(s.n+1, sizeof(int))
-    for i in range(s.n+1):
-        s.selections[i] = -1
-    s.selections_val = <int*> mem.allocarray(s.n+1, sizeof(int))
-    for i in range(s.n+1):
-        s.selections_val[i] = -1
+    cdef bool ** incidences = <bool **> mem.allocarray(n, sizeof(bool *))
+    for i in range(n):
+        incidences[i] = <bool *> mem.calloc(n, sizeof(bool))
 
-    # 3. Colors
-    s.colors = <uint64_t **> mem.allocarray(s.n+1, sizeof(uint64_t*))
-    for i in range(s.n+1):
-        s.colors[i] = <uint64_t *> mem.aligned_allocarray(32, s.m_limbs, sizeof(uint64_t))
-
-    # initializing the first colors set
-    for j in range(s.m_limbs):
-        # We start off with all colors.
-        # At thet start not a single color has Tverberg partition YET.
-        # This is not entire true, as technically the partitions of type 3,3,3,1 are possible.
-        # However those are added to each choice that yields a partition of type 2,2,2,1.
-        s.colors[0][j] = all_colors_local._bitset.bits[j]
-
-    # Enough space to copy all colors for intermediate usage.
-    s.colors_foo = <uint64_t *> mem.aligned_allocarray(32, s.m_limbs, sizeof(uint64_t))
-
-    # 4. Options
-    # At each iteration step we save which constellations for which intersection point are still possible.
-    # Each uint64_t saves with each bit, if a constellation is still possible for this intersection point.
-    s.options = <uint64_t **> mem.allocarray(s.n+1, sizeof(uint64_t*))
-    for i in range(s.n+1):
-        s.options[i] = <uint64_t *> mem.aligned_allocarray(32, s.n_limbs, sizeof(uint64_t))
-
-    # Enough space to copy all options for intermediate usage.
-    s.options_foo = <uint64_t *> mem.aligned_allocarray(32, s.n_limbs, sizeof(uint64_t))
-
-    # We start of with all options available. For each intersection point we can pick each constellation.
-    # about 1 ms
-    current_conn = tuple(Bitset((i for i in range(O._n_poss(index)))) for index in range(s.n))
-
-    # initialize options[0]
-    for j in range(s.n):
-        somea = current_conn[j]
-        s.options[0][j] = (<uint64_t*> somea._bitset.bits)[0]
-    for j in range(s.n,s.n_limbs):
-        s.options[0][j] = <uint64_t> 0
-
-    # 5. Obstructions
+    # Obstructions
     # Obtain for each possible constellation the colors for which there is no Tverberg Partition.
-    # about 18  ms
-    rainbows = tuple(tuple(O.rainbow_partitions_cached(i,index) for index in range(O._n_poss(i))) for i in range(s.n))
 
-    s.obstructions = <uint64_t ***> mem.allocarray(s.n, sizeof(uint64_t**))
-    for i in range(s.n):
-        s.obstructions[i] = <uint64_t **> mem.allocarray(O._n_poss(i), sizeof(uint64_t*))
-        for j in range(O._n_poss(i)):
-            s.obstructions[i][j] = <uint64_t*> mem.aligned_allocarray(32, s.m_limbs, sizeof(uint64_t))
-            somea = rainbows[i][j]
-            for k in range(s.m_limbs):
-                s.obstructions[i][j][k] = (<uint64_t*> somea._bitset.bits)[k]
+    cdef int offset_colors = first_per_part[k-1]
+    cdef int offset_i, ind_i
+    cdef long ind_color
+
+    for i in range(k-1):
+        offset_i = first_per_part[i]
+        for ind_i in range(O._n_poss(i)):
+            somea = O.rainbow_partitions_cached(i, ind_i)
+            ind_color = bitset_next(somea._bitset, 0)
+            while ind_color != -1:
+                incidences[offset_i + ind_i][offset_colors + ind_color] = True
+                incidences[offset_colors + ind_color][offset_i + ind_i] = True
+                ind_color = bitset_next(somea._bitset, ind_color + 1)
 
     cdef int l
 
-    # 6. All connections
+    # All connections
     # For each constellation we store, which other constellations are still possible, if this is picked.
-    s.all_conn = <uint64_t ***> mem.allocarray(s.n, sizeof(uint64_t**))
-    for i in range(s.n):
-        s.all_conn[i] = <uint64_t **> mem.allocarray(O._n_poss(i), sizeof(uint64_t *))
-        for j in range(O._n_poss(i)):
-            s.all_conn[i][j] = <uint64_t *> mem.aligned_allocarray(32, s.n_limbs, sizeof(uint64_t))
+    cdef int ind_j, offset_j
+    for i in range(k-1):
+        offset_i = first_per_part[i]
+        for ind_i in range(O._n_poss(i)):
+            for j in range(i):
+                offset_j = first_per_part[j]
+                for ind_j in range(O._n_poss(j)):
+                    # There is an arc between those vertices if and only if i,ind_i and j,ind_j are consistent.
+                    if O.check_for_consistency_cached(i, ind_i, j, ind_j):
+                        incidences[offset_i + ind_i][offset_j+ ind_j] = True
+                        incidences[offset_j + ind_j][offset_i+ ind_i] = True
 
-            for k in range(i):
-                s.all_conn[i][j][k] = 0
-                for l in range(O._n_poss(k)):
-                    # Set the l-th bit if and only if i,j and k,l are consistent.
-                    if O.check_for_consistency_cached(i,j,k,l):
-                        s.all_conn[i][j][k] += (<uint64_t> 1)<< l
+    cdef KPartiteKClique * K = new KPartiteKClique(incidences, n, first_per_part, k)
+    try:
+        sig_on()
+        foo = K.next()
+        sig_off()
+        if foo:
+            # There is a counter example.
+            raise AssertionError
+    finally:
+        del K
+        del mem
 
-            s.all_conn[i][j][i] = (<uint64_t> 1)<< j
-
-            for k in range(i+1,s.n):
-                s.all_conn[i][j][k] = 0
-                for l in range(O._n_poss(k)):
-                    if O.check_for_consistency_cached(k,l,i,j):
-                        s.all_conn[i][j][k] += (<uint64_t> 1)<< l
-
-            for k in range(s.n, s.n_limbs):
-                s.all_conn[i][j][k] = 0
-
-    s.reverse = False
-    s.found_solution = False
-
-    cdef uint64_t *total_color = <uint64_t *> mem.aligned_calloc(32, s.m_limbs, sizeof(uint64_t))
-
-    n = _my_clique_finder(&s)
-    while n:
-        unite(total_color, total_color, s.colors[s.pos], s.m_limbs)
-        print("There are solutions.")
-        n = _my_clique_finder(&s)
-
-    # initializing the first colors set
-    for j in range(s.m_limbs):
-        all_colors_local._bitset.bits[j] = total_color[j]
-
-    return all_colors_local
-
-cdef struct clique_finder_struct:
-    int n                       # number of intersection points
-    int n_limbs                 # n possible increased such that it is divisible by 4
-    int m                       # number of colors
-    int m_limbs                 # number of uint64_t needed to obtain m, must be divisible by 4
-    int **choices               # here the choices for each step are being stored
-    int *final_choice
-    int pos                     # corrent position
-    int *selections             # here we keep the selection, selections keeps which intersection we choose
-    int *selections_val         # selections_val keeps which choice we made previously for this point
-    int counter
-
-    uint64_t **colors           # for each step all colors that are still possibly an obstruction
-    uint64_t **options          # for each all still available options
-    uint64_t ***all_conn        # all_conn[i][j] stores all connections of choice j for intersection i
-    uint64_t ***obstructions    # obstructions[i][j] stores all colors that don't have a Tverberg partition for
-                                # choice j for intersection i
-
-    uint64_t *colors_foo
-    uint64_t *options_foo
-    bint reverse
-    bint found_solution
-
-cdef int _my_clique_finder(clique_finder_struct *s) except -1:
-    r"""
-    Currently I use this to check whether there is a partition at all.
-    """
-    cdef int *selections = s[0].selections
-    cdef int *selections_val = s[0].selections_val
-    cdef uint64_t **options = s[0].options
-    cdef uint64_t ***obstructions = s[0].obstructions
-    cdef uint64_t ***all_conn = s[0].all_conn
-    cdef uint64_t **colors = s[0].colors
-    cdef int **choices = s[0].choices
-    cdef int i
-    cdef int minimal_length
-    cdef int minimal_length_index
-    cdef int current_index2
-    cdef int current_new_colors
-    cdef int max_new_colors_len
-    cdef int max_new_colors_index
-    cdef int max_new_colors_index2
-    cdef int new_colors_index
-    cdef int l, val
-    cdef size_t poped_colors = 0
-    cdef bint reverse = s[0].reverse
-    cdef bint something_new = False
-    cdef uint64_t *colors_foo = s[0].colors_foo
-    cdef uint64_t *options_foo = s[0].options_foo
-    cdef int last_intersection
-    cdef int last_constellation
-
-    while True:
-        s[0].counter += 1  # just for kicks we count the number of loops
-
-        if reverse:  # undo last selection
-            if s[0].pos == 0:
-                return 0
-
-            if s[0].found_solution:
-                # Beware. This changes behavior.
-                # If we have already witnessed that a certain color has a solution, we just let it be.
-                # This helps the finder to terminate, if there are solutions.
-                s[0].found_solution = False
-                for i in range(0, s[0].pos):
-                    # Delete the solutions colors from the problem once and for all.
-                    and_not(colors[i], colors[i], colors[s[0].pos], s[0].m_limbs)
-
-            selections[s[0].pos] = -1
-            selections_val[s[0].pos] = -1
-            s[0].pos -= 1
-            if s[0].pos >= 0:
-                last_intersection = selections[s[0].pos]
-                last_constellation = selections_val[s[0].pos]
-
-                # Do not visit the last option again.
-                options[s[0].pos][last_intersection] &= ~((<uint64_t> 1) << (last_constellation))
-
-                # As there in an option deleted now, possibly there are constellations which are now unconnected
-                # (the only way to make them consistent was the just deleted option).
-                union_all(options_foo, all_conn[last_intersection], options[s[0].pos][last_intersection], s[0].n_limbs)
-                intersection(options[s[0].pos], options[s[0].pos], options_foo, s[0].n_limbs)
-
-                # Same for colors. Maybe all the remaining options have some color in common.
-                union_all(colors_foo, obstructions[last_intersection], options[s[0].pos][last_intersection], s[0].m_limbs)
-                intersection(colors[s[0].pos], colors[s[0].pos], colors_foo, s[0].m_limbs)
-
-                selections[s[0].pos] = -1
-                selections_val[s[0].pos] = -1
-            reverse = False
-            continue
-
-        # We should pick a new selection now.
-        # The problem is very complex.
-        # So we try to cheaply reduce complexcity:
-        #
-        #     Pick a selection that disables as many new colors as possible.
-        #     Hopefully this will quickly have all colors with an existing Tverberg Partition and then this option
-        #     doesn't have counterexamples in the first place.
-        #
-        #     We do this until:
-        #     - Each new option doesn't disable colors, which means there is a counterexample
-        #       (at least if there is a consistent choice for all intersections left).
-        #     - There are no options left.
-
-        # Along the way we select constellations, if they are the only one left for a certain intersection point.
-        minimal_length = 64
-        minimal_length_index = -1
-        max_new_colors_len = 0
-        max_new_colors_index = -1
-        for i in range(s[0].n):
-            if choices[s[0].pos][i] != -1:
-                # Have been chosen already.
-                continue
-            l = popcnt(options[s[0].pos][i])
-            if l == 0:
-                # No choices left for this intersection. Some invalid choice somewhere!
-                reverse = True
-                break
-            elif l == 1:
-                # Only one option, so pick it.
-                val = first(options[s[0].pos][i])
-                intersection(options[s[0].pos], options[s[0].pos], all_conn[i][val], s[0].n_limbs)
-                intersection(colors[s[0].pos], colors[s[0].pos], obstructions[i][val], s[0].m_limbs)
-                choices[s[0].pos][i] = val
-            else:
-                if l < minimal_length:
-                    minimal_length = l
-                    minimal_length_index = i
-
-                # Determine the constellation that has a Tverberg partition for as many new colors as possible.
-                current_new_colors = maximize_new_colors(colors[s[0].pos], obstructions[i], options[s[0].pos][i], s[0].m_limbs, &current_index2)
-                if current_new_colors > max_new_colors_len:
-                    max_new_colors_len = current_new_colors
-                    max_new_colors_index2 = current_index2
-                    max_new_colors_index = i
-
-        if reverse or any_is_empty(options[s[0].pos], s[0].n) or is_empty(colors[s[0].pos], s[0].m_limbs):
-            reverse = True
-            continue
-
-        if max_new_colors_len == 0:
-            # There is no selection that disables more colors.
-            max_new_colors_index = minimal_length_index
-            if minimal_length_index != -1:
-                max_new_colors_index2 = first(options[s[0].pos][max_new_colors_index])
-
-        selections[s[0].pos] = max_new_colors_index
-        selections_val[s[0].pos] = max_new_colors_index2
-
-        s[0].final_choice = choices[s[0].pos]
-        if minimal_length_index == -1:
-            # We found a solution
-            s[0].reverse = True
-            s[0].found_solution = True
-            return 1
-
-        elif not s[0].counter % 10000000:
-            # Just for kicks we print some message once in a while.
-            # Just to see that the process is doing something.
-            print(tuple(selections_val[i] for i in range(s[0].pos)), "choices left", sum(popcnt(options[0][i]) for i in range(s.n))-s.n, "forced choices", sum(1 for i in range(s.n) if 1 == popcnt(options[0][i])))
-        s[0].counter += 1
-
-        if selections_val[s[0].pos] == 64:
-            # no more choices
-            reverse = True
-            continue
-        else:
-            # Copy the current choices to the next iteration level.
-            for i in range(s[0].n):
-                choices[s[0].pos+1][i] = choices[s[0].pos][i]
-            # Make the new selection.
-            choices[s[0].pos+1][selections[s[0].pos]] = selections_val[s[0].pos]
-            intersection(options[s[0].pos+1], options[s[0].pos], all_conn[selections[s[0].pos]][selections_val[s[0].pos]], s[0].n_limbs)
-            intersection(colors[s[0].pos+1], colors[s[0].pos], obstructions[selections[s[0].pos]][selections_val[s[0].pos]], s[0].m_limbs)
-            s[0].pos += 1
-
-            if any_is_empty(options[s[0].pos], s[0].n) or is_empty(colors[s[0].pos], s[0].m_limbs):
-                # Turns out this was a bad choice
-                reverse = True
-                continue
+    return []
