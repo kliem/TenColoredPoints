@@ -1,6 +1,6 @@
 # cython: cdivision=True
-# distutils: depends = KPartiteKClique/k_partite_k_clique.cpp KPartiteKClique/k_partite_k_clique.h
-# distutils: sources = KPartiteKClique/k_partite_k_clique.cpp
+# distutils: depends = KPartiteKClique/kpkc.cpp KPartiteKClique/kpkc.h
+# distutils: sources = KPartiteKClique/kpkc.cpp
 # distutils: include_dirs = KPartiteKClique
 # distutils: extra_compile_args=-O3 -march=native -std=c++11
 # distutils: language = c++
@@ -11,26 +11,20 @@ from sage.structure.sage_object cimport SageObject
 from itertools import combinations, permutations, product, chain
 from sage.ext.memory_allocator cimport MemoryAllocator
 from sage.rings.all import ZZ
-from sage.misc.persist import save
-from sage.misc.misc import cputime
-from cysignals.signals cimport sig_on, sig_off
 
 cimport cython
 
-
-import gc
 from sage.data_structures.bitset cimport Bitset
 from sage.data_structures.bitset_base cimport bitset_next
-from libc.stdint                 cimport uint64_t
 from libc.stdio                     cimport FILE, fopen, fclose, fwrite, fread
 
 from libcpp cimport bool
 
-cdef extern from "KPartiteKClique/k_partite_k_clique.h":
+cdef extern from "KPartiteKClique/kpkc.h":
     cdef cppclass KPartiteKClique:
-        KPartiteKClique(bool **, int n_vertices, int* first_per_part, int k)
         KPartiteKClique()
-        bool next()
+        void init(bool **, int n_vertices, int* first_per_part, int k) except +
+        bool next() except +
         const int* k_clique()
 
 def color_iterator():
@@ -579,7 +573,7 @@ cdef class OrientedMatroid(SageObject):
 
     cdef int ****__consistency_cache__
 
-    cpdef inline bint check_for_consistency_cached(self, int i,int j, int k,int l):
+    cpdef inline bint check_for_consistency_cached(self, int i, int j, int k, int l):
         r"""
         See below.
         """
@@ -1116,16 +1110,11 @@ def poss_color_finder(OrientedMatroid O):
                         incidences[offset_i + ind_i][offset_j+ ind_j] = True
                         incidences[offset_j + ind_j][offset_i+ ind_i] = True
 
-    cdef KPartiteKClique * K = new KPartiteKClique(incidences, n, first_per_part, k)
-    try:
-        sig_on()
-        foo = K.next()
-        sig_off()
-        if foo:
-            # There is a counter example.
-            raise AssertionError
-    finally:
-        del K
-        del mem
+    cdef KPartiteKClique K = KPartiteKClique()
+    K.init(incidences, n, first_per_part, k)
+    foo = K.next()
+    if foo:
+        # There is a counter example.
+        raise AssertionError
 
     return []
