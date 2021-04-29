@@ -6,11 +6,10 @@
 # distutils: language = c++
 
 
-from sage.misc.cachefunc import cached_method, cached_function
-from sage.structure.sage_object cimport SageObject
+from functools import lru_cache
 from itertools import combinations, permutations, product, chain
-from sage.ext.memory_allocator cimport MemoryAllocator
-from sage.rings.all import ZZ
+from memory_allocator cimport MemoryAllocator
+from pseudo_order_types.pseudo_order_types import pseudo_order_type_iterator
 
 cimport cython
 
@@ -81,7 +80,7 @@ def color_iterator():
                     E = tuple(i for i in C1 if not i in D)
                     yield (A,B,C,D,E)
 
-@cached_function
+@lru_cache(None)
 def all_colors():
     """
     A tuple consisiting of a dictionary per color.
@@ -96,11 +95,11 @@ def all_colors():
         return dic
     return tuple(to_dic(c) for c in color_iterator())
 
-@cached_function
+@lru_cache(None)
 def n_colors():
     return len(all_colors())
 
-@cached_function
+@lru_cache(None)
 def colors_for_partition(partition):
     r"""
     Given a partition.
@@ -142,25 +141,6 @@ def OrderType(n):
         f.seek(40*n)
         data = f.read(40)
         return tuple((int.from_bytes(data[4*i:4*i+2], "little"), int.from_bytes(data[4*i+2:4*i+4], "little")) for i in range(10))
-
-def pseudo_order_type_iterator(int n=10, path="/storage/mi/kliem/OrderSets/10"):
-    r"""
-    Iterate over all pseudo order sets generated from ``get_all_order_sets.py``.
-
-    Each pseudo order set is given as a 120 ``char``, for the signitarues of the chirotopes.
-    """
-    cdef FILE *fp
-    fp = fopen(path.encode('utf-8'), "r")
-    if (fp==NULL):
-        raise IOError("cannot open file {}".format(path))
-    combs = tuple(combinations(range(n),3))
-    cdef size_t end = len(combs)
-    cdef MemoryAllocator mem = MemoryAllocator()
-    cdef char* choices = <char*> mem.allocarray(len(combs), sizeof(char))
-    while fread(choices, end, sizeof(char), fp):
-        yield tuple(choices[i] for i in range(len(combs)))
-
-    fclose(fp)
 
 def check_all_colors(start=0, end=2**20):
     r"""
@@ -216,12 +196,12 @@ def orientation(p1, p2, p3):
         # Colinear orientation
         return 0
 
-@cached_function
+@lru_cache(None)
 def combs():
     return tuple(combinations(range(10), 3))
 
 @cython.final
-cdef class OrientedMatroid(SageObject):
+cdef class OrientedMatroid:
     r"""
     An Oriented Matroid with 10 points and methods that help to analyze
     the Tverberg situation.
@@ -255,7 +235,14 @@ cdef class OrientedMatroid(SageObject):
             for i,j,k in data:
                 self.dic[i][j][k] = data[i,j,k]
             return
-        if data in ZZ:
+        is_integer = isinstance(data, int)
+        try:
+            from sage.rings.all import ZZ
+            if data in ZZ:
+                is_integer = True
+        except ModuleNotFoundError:
+            pass
+        if is_integer:
             # Input is an index of the OrderType
             points = OrderType(data)
         elif len(data) == 120:
@@ -287,11 +274,11 @@ cdef class OrientedMatroid(SageObject):
         """
         return {(i,j,k): self.dic[i][j][k] for i,j,k in combinations(range(10), 3)}
 
-    @cached_method
+    @lru_cache(None)
     def n_intersection_points(self):
         return len(self.intersection_points())
 
-    @cached_method
+    @lru_cache(None)
     def intersection_points(self):
         r"""
         A tuple containing all the intersection points.
@@ -333,7 +320,7 @@ cdef class OrientedMatroid(SageObject):
                     if 2 <= counter <= 4 and 2 <= counter2 <= 4:
                         yield (a,b), (c,d)
 
-    @cached_method
+    @lru_cache(None)
     def possibilities_for_intersection(self, int a, int b, int c, int d):
         return tuple(self._possibilities_for_intersection(a,b,c,d))
 
@@ -532,7 +519,7 @@ cdef class OrientedMatroid(SageObject):
             else:
                 yield {opposed[k]: chosen[k] for k in range(n_opposed)}
 
-    @cached_method
+    @lru_cache(None)
     def _n_poss(self, i):
         r"""
         Number of possibilities for intersection number i.
@@ -540,7 +527,7 @@ cdef class OrientedMatroid(SageObject):
         (a,b), (c,d) = self.intersection_points()[i]
         return len(self.possibilities_for_intersection(a,b,c,d))
 
-    @cached_method
+    @lru_cache(None)
     def sections(self, int a, int b, int c, int d):
         r"""
         The 2 lines ab and cd give 4 quadrants/sections.
@@ -562,7 +549,7 @@ cdef class OrientedMatroid(SageObject):
             sections_op[i] = count
         return sections, sections_op, others
 
-    @cached_method
+    @lru_cache(None)
     def obtain_dic(self, int i, int j):
         r"""
         Obtain the j-th possibility for the i-th intersection point.
@@ -926,11 +913,11 @@ cdef class OrientedMatroid(SageObject):
         else:
             return tuple((model.getVal(xval[i]), model.getVal(yval[i])) for i in range(10))
 
-    @cached_method
+    @lru_cache(None)
     def partitions_one(self):
         return tuple(self._partitions_one())
 
-    @cached_method
+    @lru_cache(None)
     def partitions_one_bitset(self):
         r"""
         Return a bitset that has each color index set to 1, for which there IS Tverberg partition of type 3,3,3,1
@@ -1009,7 +996,7 @@ cdef class OrientedMatroid(SageObject):
                 if is_triangle(e,f,g):
                     yield ((a,b), (c,d), (x,y,z), (e,f,g))
 
-    @cached_method
+    @lru_cache(None)
     def rainbow_partitions_cached(self, i,j):
         r"""
         Return a bitset for intersection i,j that contains a 0 for each color,
@@ -1026,7 +1013,7 @@ cdef class OrientedMatroid(SageObject):
             start = start.union(colors_for_partition(part))
         return ~start
 
-    @cached_method
+    @lru_cache(None)
     def poss_graph(self):
         """
         currently not used
