@@ -1,6 +1,5 @@
 # cython: cdivision=True
 # distutils: depends = KPartiteKClique/kpkc.cpp KPartiteKClique/kpkc.h
-# distutils: sources = KPartiteKClique/kpkc.cpp
 # distutils: include_dirs = KPartiteKClique
 # distutils: extra_compile_args=-O3 -march=native -std=c++11
 # distutils: language = c++
@@ -13,18 +12,67 @@ from pseudo_order_types.pseudo_order_types import pseudo_order_type_iterator
 
 cimport cython
 
-from sage.data_structures.bitset cimport Bitset
-from sage.data_structures.bitset_base cimport bitset_next
-from libc.stdio                     cimport FILE, fopen, fclose, fwrite, fread
+from libc.stdio                       cimport FILE, fopen, fclose, fwrite, fread
 
 from libcpp cimport bool
 
-cdef extern from "KPartiteKClique/kpkc.h":
+cdef extern from "KPartiteKClique/kpkc.cpp":
     cdef cppclass KPartiteKClique:
         KPartiteKClique()
         void init(bool **, int n_vertices, int* first_per_part, int k) except +
         bool next() except +
         const int* k_clique()
+
+    cdef cppclass Bitset:
+        Bitset(int n_vertices)
+        int first(int start)
+        void set(int)
+
+cdef extern from "bitset2.cpp":
+    cdef cppclass Bitset2(Bitset):
+        Bitset2(int n_vertices)
+        void init()
+        void init(Bitset2& obj)
+        void flip_inplace()
+        void union_assign(Bitset2& l, Bitset2& r)
+
+
+cdef class Bitset_wrapper:
+    cdef Bitset2* ptr
+    cdef int n_vertices
+
+    def __cinit__(self, int n_vertices, iterable=None):
+        self.ptr = new Bitset2(n_vertices)
+        self.n_vertices = n_vertices
+        cdef int i
+        self.ptr.init()
+        if iterable is not None:
+            for i in iterable:
+                self.ptr.set(i)
+
+    def __dealloc__(self):
+        del self.ptr
+
+    cdef void clear(self):
+        self.ptr.init()
+
+    cdef Bitset_wrapper copy(self):
+        cdef Bitset_wrapper foo = Bitset_wrapper(self.n_vertices)
+        foo.ptr.init(self.ptr[0])
+        return foo
+
+    cdef void flip_inplace(self):
+        self.ptr.flip_inplace()
+
+    cdef void union_assign(self, Bitset_wrapper l, Bitset_wrapper r):
+        self.ptr.union_assign(l.ptr[0], r.ptr[0])
+
+    cdef inline void set(self, int i):
+        self.ptr.set(i)
+
+    cdef inline int first(self, int i):
+        return self.ptr.first(i)
+
 
 def color_iterator():
     """
@@ -107,8 +155,7 @@ def colors_for_partition(partition):
     Return a bitset with each color set, where this partition is colorful.
     """
     cap = ((n_colors()-1)//256 + 1)*256
-
-    return Bitset(chain(_colors_for_partition(partition), range(n_colors(),cap)) , capacity=cap)
+    return Bitset_wrapper(cap, chain(_colors_for_partition(partition), range(n_colors(),cap)))
 
 def _colors_for_partition(partition):
     for i,color in enumerate(all_colors()):
@@ -803,116 +850,6 @@ cdef class OrientedMatroid:
 
         return minimum
 
-    def final_realization(self, *args, verbose=True, seed=0):
-        r"""
-        Find a realization with SCIP including the exact location of intersection points.
-
-        Currently not needed.
-
-        Seed is to select one of the possible colors. Irrelevant intersection points are then ignored to reduce complexity.
-        """
-        rainbows = [self.rainbow_partitions_cached(i,args[i]) for i in range(len(args))]
-        c = rainbows[0]
-        for x in rainbows:
-            c = c.intersection(x)
-        choices = list(c)
-        assert choices
-        if seed >= len(choices):
-            raise ValueError("seed to large")
-        choice = choices[seed]
-
-        def is_interesting(int_points, color_dic):
-            (a,b, c,d) = int_points
-            left = [color_dic[x] for x in range(10) if not x in (a,b,c,d)]
-            return color_dic[a] != color_dic[b] and color_dic[c] != color_dic[d] and all(2 >= sum(1 for x in left if x == i) for i in range(3))
-        new_args = []
-        for i,arg in enumerate(args):
-            int_points = self.obtain_dic(i,arg)[1:5]
-            if is_interesting(int_points, all_colors()[choice]):
-                new_args.append(self.obtain_dic(i,arg)[0])
-
-        print(len(new_args), choice, all_colors()[choice])
-        return self.find_realization(*new_args, verbose=verbose, color_choice=choice)
-
-    def find_realization(self, *args, verbose=False, color_choice=None):
-        r"""
-        Find a realization with SCIP, currently not needed.
-        """
-        from pyscipopt import Model, SCIP_PARAMSETTING
-        if len(args) > 0 and not isinstance(args[0], dict):
-            new_args = []
-            for i,arg in enumerate(args):
-                new_args.append(self.obtain_dic(i,arg)[0])
-            args = new_args
-
-        '''
-        for dic1,dic2 in combinations(args,2):
-            if not self.check_for_consistency(dic1,dic2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1):
-                return None
-        '''
-        model = Model("OM")
-        if not verbose:
-            model.hideOutput()
-        model.setPresolve(SCIP_PARAMSETTING.OFF)
-        xval = [model.addVar(name="x{}".format(i), ub=100, vtype="C") for i in range(10)]
-        yval = [model.addVar(name="x{}".format(i), ub=100, vtype="C") for i in range(10)]
-
-        intersections = []
-        for dic in args:
-            for k in dic:
-                intersections.append(k[2])
-                break
-
-        xint = [model.addVar(name="x1{}".format(i), ub=100, vtype="C") for i in intersections]
-        yint = [model.addVar(name="y1{}".format(i), ub=100, vtype="C") for i in intersections]
-
-        if color_choice is not None:
-            colors = all_colors()[color_choice]
-
-        def is_rainbow_choice(*args):
-            if color_choice is None:
-                return True
-            return len(args) == len(set(colors[i] for i in args))
-
-        bounds = {}
-        for i,j,k in combinations(range(10), 3):
-            o = self.dic[i][j][k]
-            if o == 1:
-                bounds[(i,j,k)] = model.addCons((yval[j] - yval[i])*(xval[k] - xval[j]) - (xval[j] - xval[i])*(yval[k] - yval[j]) <= -0.1)
-            else:
-                bounds[(i,j,k)] = model.addCons((yval[j] - yval[i])*(xval[k] - xval[j]) - (xval[j] - xval[i])*(yval[k] - yval[j]) >= 0.1)
-
-        for i,dic in enumerate(args):
-            (a,b), (c,d) = intersections[i]
-            intersection = intersections[i]
-            j = a
-            k = b
-            bounds[(intersection,1,1)] = model.addCons((yval[j] - yint[i])*(xval[k] - xval[j]) - (xval[j] - xint[i])*(yval[k] - yval[j]) == 0)
-            j = c
-            k = d
-            bounds[(intersection,1,2)] = model.addCons((yval[j] - yint[i])*(xval[k] - xval[j]) - (xval[j] - xint[i])*(yval[k] - yval[j]) == 0)
-            for s,t,intersection in dic:
-                if not is_rainbow_choice(s,t):
-                    # We don't care about how those not colorful lines are chosen.
-                    continue
-                val = dic[(s,t,intersection)]
-                if val == 1:
-                    j = s
-                    k = t
-                else:
-                    j = t
-                    k = s
-                bounds[(intersection,s,t,1)] = model.addCons((yval[j] - yint[i])*(xval[k] - xval[j]) - (xval[j] - xint[i])*(yval[k] - yval[j]) <= -0.1)
-
-        #model.setObjective(xval[0], "minimize")
-
-        model.optimize()
-        self.model = model
-        if not model.getStatus() == "optimal":
-            raise ValueError("appears to be infeasible")
-        else:
-            return tuple((model.getVal(xval[i]), model.getVal(yval[i])) for i in range(10))
-
     @lru_cache(None)
     def partitions_one(self):
         return tuple(self._partitions_one())
@@ -923,9 +860,9 @@ cdef class OrientedMatroid:
         Return a bitset that has each color index set to 1, for which there IS Tverberg partition of type 3,3,3,1
         """
         cap = ((n_colors()-1)//256 + 1)*256
-        cdef Bitset foo = Bitset(range(n_colors(),cap), capacity = cap)
+        cdef Bitset_wrapper foo = Bitset_wrapper(cap, range(n_colors(),cap))
         for part in self._partitions_one():
-            foo = foo.union(colors_for_partition(part))
+            foo.union_assign(foo, colors_for_partition(part))
         return foo
 
     def _partitions_one(self):
@@ -1008,15 +945,18 @@ cdef class OrientedMatroid:
         return self.rainbow_partitions(dic, a,b,c,d)
 
     def rainbow_partitions(self, dict dic, int a, int b, int c, int d):
-        cdef Bitset start = self.partitions_one_bitset()
+        cdef Bitset_wrapper foo = self.partitions_one_bitset()
+        cdef Bitset_wrapper start = foo.copy()
         for part in self.partitions_two(dic,a,b,c,d):
-            start = start.union(colors_for_partition(part))
-        return ~start
+            start.union_assign(start, colors_for_partition(part))
+        start.flip_inplace()
+        return start
 
     @lru_cache(None)
     def poss_graph(self):
         """
-        currently not used
+        Used to obtain the sample graphs
+        in ``https://github.com/kliem/PyKPartiteKClique``.
         """
         from sage.graphs.graph import Graph
         G = Graph()
@@ -1045,7 +985,7 @@ def poss_color_finder(OrientedMatroid O):
     There exists some setup with the intersections so that the colors don't have a Tverberg Partition.
     """
     cdef MemoryAllocator mem = MemoryAllocator()
-    cdef Bitset somea  # type awareness of cython
+    cdef Bitset_wrapper somea  # type awareness of cython
     cdef int i, j
 
     cdef int k = O.n_intersection_points() + 1
@@ -1070,16 +1010,18 @@ def poss_color_finder(OrientedMatroid O):
     cdef int offset_colors = first_per_part[k-1]
     cdef int offset_i, ind_i
     cdef long ind_color
+    cdef int n_vertices
 
     for i in range(k-1):
         offset_i = first_per_part[i]
         for ind_i in range(O._n_poss(i)):
             somea = O.rainbow_partitions_cached(i, ind_i)
-            ind_color = bitset_next(somea._bitset, 0)
-            while ind_color != -1:
+            ind_color = somea.first(0)
+            n_vertices = somea.n_vertices
+            while ind_color < n_vertices:
                 incidences[offset_i + ind_i][offset_colors + ind_color] = True
                 incidences[offset_colors + ind_color][offset_i + ind_i] = True
-                ind_color = bitset_next(somea._bitset, ind_color + 1)
+                ind_color = somea.first(ind_color + 1)
 
     cdef int l
 
