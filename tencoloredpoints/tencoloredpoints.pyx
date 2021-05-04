@@ -62,6 +62,11 @@ cdef class Bitset_wrapper:
         return foo
 
     cdef void flip_inplace(self):
+        """
+        Note that one needs to consider trailing bits for this to make sense.
+
+        In our case, we make sure that ``n_vertices`` is a multiple of 256.
+        """
         self.ptr.flip_inplace()
 
     cdef void union_assign(self, Bitset_wrapper l, Bitset_wrapper r):
@@ -215,9 +220,9 @@ def _check_all_colors(start, end, iterator):
             print("currently doing: ", i)
         try:
             _ = poss_color_finder(O)
-        except AssertionError:
+        except ValueError:
             # There appears to be a counter example.
-            raise AssertionError("found counterexample at index {}".format(i))
+            raise ValueError("found counterexample at index {}".format(i))
 
 def orientation(p1, p2, p3):
     # to find the orientation of
@@ -256,6 +261,12 @@ cdef class OrientedMatroid:
     cdef dict __dict__
     cdef int ***dic
     cdef MemoryAllocator __mem__
+    cdef object __intersection_points
+    cdef dict __possibilities_for_intersection
+    cdef dict _obtain_dic
+    cdef dict _sections
+    cdef dict _n_poss_cache
+    cdef Bitset_wrapper _partitions_one_bitset
 
     def __init__(self, data):
         r"""
@@ -268,6 +279,12 @@ cdef class OrientedMatroid:
         - 10 points in the plane
         """
         self.__mem__ = MemoryAllocator()
+        self.__intersection_points = None
+        self.__possibilities_for_intersection = {}
+        self._obtain_dic = {}
+        self._sections = {}
+        self._n_poss_cache = {}
+        self._partitions_one_bitset = None
 
         # Initialize self.dic.
         self.dic = <int***> self.__mem__.allocarray(10, sizeof(int**))
@@ -321,21 +338,22 @@ cdef class OrientedMatroid:
         """
         return {(i,j,k): self.dic[i][j][k] for i,j,k in combinations(range(10), 3)}
 
-    @lru_cache(None)
     def n_intersection_points(self):
         return len(self.intersection_points())
 
-    @lru_cache(None)
     def intersection_points(self):
         r"""
         A tuple containing all the intersection points.
 
         The intersection points with the least number of possibilities first.
         """
+        if self.__intersection_points:
+            return self.__intersection_points
         def my_len(i):
             (a,b), (c,d) = i
             return len(self.possibilities_for_intersection(a,b,c,d))
-        return tuple(sorted(tuple(self._intersection_points()), key=my_len))
+        self.__intersection_points = tuple(sorted(tuple(self._intersection_points()), key=my_len))
+        return self.__intersection_points
 
     def _intersection_points(self):
         r"""
@@ -367,9 +385,11 @@ cdef class OrientedMatroid:
                     if 2 <= counter <= 4 and 2 <= counter2 <= 4:
                         yield (a,b), (c,d)
 
-    @lru_cache(None)
     def possibilities_for_intersection(self, int a, int b, int c, int d):
-        return tuple(self._possibilities_for_intersection(a,b,c,d))
+        dic = self.__possibilities_for_intersection
+        if not (a, b, c, d) in dic:
+            dic[a, b, c, d] = tuple(self._possibilities_for_intersection(a,b,c,d))
+        return dic[a, b, c, d]
 
     def _possibilities_for_intersection(self, int a, int b, int c, int d):
         r"""
@@ -566,15 +586,15 @@ cdef class OrientedMatroid:
             else:
                 yield {opposed[k]: chosen[k] for k in range(n_opposed)}
 
-    @lru_cache(None)
     def _n_poss(self, i):
         r"""
         Number of possibilities for intersection number i.
         """
-        (a,b), (c,d) = self.intersection_points()[i]
-        return len(self.possibilities_for_intersection(a,b,c,d))
+        if i not in self._n_poss_cache:
+            (a,b), (c,d) = self.intersection_points()[i]
+            self._n_poss_cache[i] = len(self.possibilities_for_intersection(a,b,c,d))
+        return self._n_poss_cache[i]
 
-    @lru_cache(None)
     def sections(self, int a, int b, int c, int d):
         r"""
         The 2 lines ab and cd give 4 quadrants/sections.
@@ -583,27 +603,30 @@ cdef class OrientedMatroid:
 
         Return the sections, an inverse dictionary and a tuple of the other points.
         """
-        sections = [[], [], [], []]
-        sections_op = {}
-        others = tuple(i for i in range(10) if not i in (a,b,c,d))
-        for i in others:
-            count = 0
-            # i belongs to an odd region iff a,b,i is oriented counter-clock-wise.
-            count += int(self.dic[a][b][i] == 1)
-            # i belongs to region >= 2 iff c,d,i is oriented counter-clock-wise.
-            count += 2*int(self.dic[c][d][i] == 1)
-            sections[count].append(i)
-            sections_op[i] = count
-        return sections, sections_op, others
+        if (a, b, c, d) not in self._sections:
+            sections = [[], [], [], []]
+            sections_op = {}
+            others = tuple(i for i in range(10) if not i in (a,b,c,d))
+            for i in others:
+                count = 0
+                # i belongs to an odd region iff a,b,i is oriented counter-clock-wise.
+                count += int(self.dic[a][b][i] == 1)
+                # i belongs to region >= 2 iff c,d,i is oriented counter-clock-wise.
+                count += 2*int(self.dic[c][d][i] == 1)
+                sections[count].append(i)
+                sections_op[i] = count
+            self._sections[a, b, c, d] = (sections, sections_op, others)
+        return self._sections[a, b, c, d]
 
-    @lru_cache(None)
     def obtain_dic(self, int i, int j):
         r"""
         Obtain the j-th possibility for the i-th intersection point.
         """
-        (a,b), (c,d) = self.intersection_points()[i]
-        dic = self.possibilities_for_intersection(a,b,c,d)[j]
-        return (dic, a,b,c,d)
+        if (i, j) not in self._obtain_dic:
+            (a,b), (c,d) = self.intersection_points()[i]
+            dic = self.possibilities_for_intersection(a,b,c,d)[j]
+            self._obtain_dic[i, j] = (dic, a,b,c,d)
+        return self._obtain_dic[i, j]
 
     cdef int ****__consistency_cache__
 
@@ -823,47 +846,18 @@ cdef class OrientedMatroid:
                     above_below[index] = -1
         return tuple(above_below), index_cd
 
-    def shortest_final_realization(self, *args, start=0, stop=1000):
-        r"""
-        Currently not used.
-        """
-        rainbows = [self.rainbow_partitions_cached(i,args[i]) for i in range(len(args))]
-        c = rainbows[0]
-        for x in rainbows:
-            c = c.intersection(x)
-        choices = list(c)
-        assert choices
-        minimum = 1000
-        for seed in range(start, min(stop,len(choices))):
-            choice = choices[seed]
-
-            def is_interesting(int_points, color_dic):
-                (a,b, c,d) = int_points
-                left = [color_dic[x] for x in range(10) if not x in (a,b,c,d)]
-                return color_dic[a] != color_dic[b] and color_dic[c] != color_dic[d] and all(2 >= sum(1 for x in left if x == i) for i in range(3))
-            new_args = []
-            for i,arg in enumerate(args):
-                int_points = self.obtain_dic(i,arg)[1:5]
-                if is_interesting(int_points, all_colors()[choice]):
-                    new_args.append(self.obtain_dic(i,arg)[0])
-            minimum = min(len(new_args), minimum)
-
-        return minimum
-
-    @lru_cache(None)
-    def partitions_one(self):
-        return tuple(self._partitions_one())
-
-    @lru_cache(None)
-    def partitions_one_bitset(self):
+    cdef Bitset_wrapper partitions_one_bitset(self):
         r"""
         Return a bitset that has each color index set to 1, for which there IS Tverberg partition of type 3,3,3,1
         """
-        cap = ((n_colors()-1)//256 + 1)*256
-        cdef Bitset_wrapper foo = Bitset_wrapper(cap, range(n_colors(),cap))
-        for part in self._partitions_one():
-            foo.union_assign(foo, colors_for_partition(part))
-        return foo
+        cdef Bitset_wrapper foo
+        if self._partitions_one_bitset is None:
+            cap = ((n_colors()-1)//256 + 1)*256
+            foo = Bitset_wrapper(cap, range(n_colors(),cap))
+            for part in self._partitions_one():
+                foo.union_assign(foo, colors_for_partition(part))
+            self._partitions_one_bitset = foo
+        return self._partitions_one_bitset
 
     def _partitions_one(self):
         r"""
@@ -933,8 +927,7 @@ cdef class OrientedMatroid:
                 if is_triangle(e,f,g):
                     yield ((a,b), (c,d), (x,y,z), (e,f,g))
 
-    @lru_cache(None)
-    def rainbow_partitions_cached(self, i,j):
+    cdef Bitset_wrapper rainbow_partitions_cached(self, int i, int j):
         r"""
         Return a bitset for intersection i,j that contains a 0 for each color,
         that has a Tverberg partion for this choice (1 otherwise).
@@ -944,7 +937,7 @@ cdef class OrientedMatroid:
         dic, a,b,c,d = self.obtain_dic(i,j)
         return self.rainbow_partitions(dic, a,b,c,d)
 
-    def rainbow_partitions(self, dict dic, int a, int b, int c, int d):
+    cdef Bitset_wrapper rainbow_partitions(self, dict dic, int a, int b, int c, int d):
         cdef Bitset_wrapper foo = self.partitions_one_bitset()
         cdef Bitset_wrapper start = foo.copy()
         for part in self.partitions_two(dic,a,b,c,d):
@@ -952,7 +945,6 @@ cdef class OrientedMatroid:
         start.flip_inplace()
         return start
 
-    @lru_cache(None)
     def poss_graph(self):
         """
         Used to obtain the sample graphs
@@ -971,7 +963,7 @@ cdef class OrientedMatroid:
                         G.add_edge((i,k), (j,l))
         V = G.vertices()
         for v in V:
-            rainbows = self.rainbow_partitions_cached(*v)
+            rainbows = self.rainbow_partitions_cached(v[0], v[1])
             for l in rainbows:
                 G.add_edge(v, (n, l))
         return G
@@ -983,6 +975,24 @@ def poss_color_finder(OrientedMatroid O):
     Determine all colors for which this OrientedMatroid has a solution:
 
     There exists some setup with the intersections so that the colors don't have a Tverberg Partition.
+
+    This is done by finding a k-clique in a k-partite graph.
+
+    The last part contains one node for each color.
+
+    All the other parts represent an intersection point each.
+    The oriented matroid does not decode where this intersection point lies with respect to other lines (between two points each).
+    However, there is only a finite number of possibilities to place such an intersection point.
+
+    An edge is placed wherever such a choice can be made consistenly.
+    (Or rather no edge is place, if there is a contradiction.)
+    Further each choice is connected to all colors, for which it does not yield a colorful Tverberg partition.
+
+    A maximal clique in this graph would correspond to a consistent choice, for which there is no colorful Tverberg partition.
+    If those choices could be realized, then this would give a counter example.
+
+    However, at least for 10 points we can show that there never exists such a maximal clique, which means
+    that already on the level of oriented matroids we can show that there exists always at least on colorful Tverberg partition.
     """
     cdef MemoryAllocator mem = MemoryAllocator()
     cdef Bitset_wrapper somea  # type awareness of cython
@@ -1044,6 +1054,6 @@ def poss_color_finder(OrientedMatroid O):
     foo = K.next()
     if foo:
         # There is a counter example.
-        raise AssertionError
+        raise ValueError
 
     return []
