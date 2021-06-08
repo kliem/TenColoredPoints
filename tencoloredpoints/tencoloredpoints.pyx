@@ -962,10 +962,13 @@ cdef class OrientedMatroid:
                     if self.check_for_consistency_cached(i,k,j,l):
                         G.add_edge((i,k), (j,l))
         V = G.vertices()
+        cdef int num_colors = n_colors()
         for v in V:
             rainbows = self.rainbow_partitions_cached(v[0], v[1])
-            for l in rainbows:
+            l = rainbows.first(0)
+            while l < num_colors:
                 G.add_edge(v, (n, l))
+                l = rainbows.first(l+1)
         return G
 
 # -------- Main algorithm
@@ -1049,11 +1052,14 @@ def poss_color_finder(OrientedMatroid O):
                         incidences[offset_i + ind_i][offset_j+ ind_j] = True
                         incidences[offset_j + ind_j][offset_i+ ind_i] = True
 
-    cdef KPartiteKClique K = KPartiteKClique()
-    K.init(incidences, n, first_per_part, k)
-    foo = K.next()
-    if foo:
-        # There is a counter example.
-        raise ValueError
+    cdef KPartiteKClique* K = new KPartiteKClique()
+    try:
+        K.init(incidences, n, first_per_part, k)
+        foo = K.next()
+        if foo:
+            # There is a counter example.
+            raise ValueError
+    finally:
+        del K
 
     return []
