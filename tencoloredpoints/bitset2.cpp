@@ -37,10 +37,8 @@ Bitset2::~Bitset2(){
     data = NULL;
 }
 
-void Bitset2::operator=(const bool& obj){
+void Bitset2::clear(){
     memset(data, 0, limbs*8);
-    if (obj == true)
-        flip_inplace();
 }
 
 void Bitset2::operator=(const Bitset2& obj){

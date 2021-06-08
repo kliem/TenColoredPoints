@@ -31,7 +31,7 @@ cdef extern from "KPartiteKClique/kpkc.cpp":
 cdef extern from "bitset2.cpp":
     cdef cppclass Bitset2(Bitset):
         Bitset2(int n_vertices)
-        void operator=(const bool&)
+        void clear()
         void operator=(const Bitset2&)
         void flip_inplace()
         void union_assign(Bitset2& l, Bitset2& r)
@@ -45,7 +45,7 @@ cdef class Bitset_wrapper:
         self.ptr = new Bitset2(n_vertices)
         self.n_vertices = n_vertices
         cdef int i
-        self.ptr[0] = <bool> False;
+        self.ptr.clear()
         if iterable is not None:
             for i in iterable:
                 self.ptr.set(i)
@@ -54,7 +54,7 @@ cdef class Bitset_wrapper:
         del self.ptr
 
     cdef void clear(self):
-        self.ptr[0] = <bool> False;
+        self.ptr.clear()
 
     cdef Bitset_wrapper copy(self):
         cdef Bitset_wrapper foo = Bitset_wrapper(self.n_vertices)
