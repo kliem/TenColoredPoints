@@ -37,11 +37,13 @@ Bitset2::~Bitset2(){
     data = NULL;
 }
 
-void Bitset2::init(){
+void Bitset2::operator=(const bool& obj){
     memset(data, 0, limbs*8);
+    if (obj == true)
+        flip_inplace();
 }
 
-void Bitset2::init(Bitset2& obj){
+void Bitset2::operator=(const Bitset2& obj){
     memcpy(data, obj.data, limbs*8);
 }
 
