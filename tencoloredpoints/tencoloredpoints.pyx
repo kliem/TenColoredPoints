@@ -18,8 +18,7 @@ from libcpp cimport bool
 
 cdef extern from "KPartiteKClique/kpkc.cpp":
     cdef cppclass KPartiteKClique:
-        KPartiteKClique()
-        void init(bool **, int n_vertices, int* first_per_part, int k) except +
+        KPartiteKClique(bool **, int n_vertices, int* first_per_part, int k) except +
         bool next() except +
         const int* k_clique()
 
@@ -1052,9 +1051,8 @@ def poss_color_finder(OrientedMatroid O):
                         incidences[offset_i + ind_i][offset_j+ ind_j] = True
                         incidences[offset_j + ind_j][offset_i+ ind_i] = True
 
-    cdef KPartiteKClique* K = new KPartiteKClique()
+    cdef KPartiteKClique* K = new KPartiteKClique(incidences, n, first_per_part, k)
     try:
-        K.init(incidences, n, first_per_part, k)
         foo = K.next()
         if foo:
             # There is a counter example.
