@@ -258,7 +258,7 @@ cdef class OrientedMatroid:
     the Tverberg situation.
     """
     cdef dict __dict__
-    cdef int ***dic
+    cdef int ***chi
     cdef MemoryAllocator __mem__
     cdef object __intersection_points
     cdef dict __possibilities_for_intersection
@@ -285,18 +285,18 @@ cdef class OrientedMatroid:
         self._n_poss_cache = {}
         self._partitions_one_bitset = None
 
-        # Initialize self.dic.
-        self.dic = <int***> self.__mem__.allocarray(10, sizeof(int**))
+        # Initialize self.chi.
+        self.chi = <int***> self.__mem__.allocarray(10, sizeof(int**))
         cdef int i,j,k
         for i in range(10):
-            self.dic[i] = <int**> self.__mem__.allocarray(10, sizeof(int*))
+            self.chi[i] = <int**> self.__mem__.allocarray(10, sizeof(int*))
             for j in range(10):
-                self.dic[i][j] = <int*> self.__mem__.allocarray(10, sizeof(int))
+                self.chi[i][j] = <int*> self.__mem__.allocarray(10, sizeof(int))
 
 
         if isinstance(data, dict):
             for i,j,k in data:
-                self.dic[i][j][k] = data[i,j,k]
+                self.chi[i][j][k] = data[i,j,k]
             return
         is_integer = isinstance(data, int)
         try:
@@ -311,12 +311,12 @@ cdef class OrientedMatroid:
         elif len(data) == 120:
             for a,(i,j,k) in enumerate(combs()):
                 o = data[a]
-                self.dic[i][j][k] = o
-                self.dic[j][k][i] = o
-                self.dic[k][i][j] = o
-                self.dic[i][k][j] = -o
-                self.dic[j][i][k] = -o
-                self.dic[k][j][i] = -o
+                self.chi[i][j][k] = o
+                self.chi[j][k][i] = o
+                self.chi[k][i][j] = o
+                self.chi[i][k][j] = -o
+                self.chi[j][i][k] = -o
+                self.chi[k][j][i] = -o
             return
         else:
             points = data
@@ -324,18 +324,18 @@ cdef class OrientedMatroid:
         for i,j,k in combinations(range(10), 3):
             o = orientation(points[i],points[j],points[k])
             assert o != 0
-            self.dic[i][j][k] = o
-            self.dic[j][k][i] = o
-            self.dic[k][i][j] = o
-            self.dic[i][k][j] = -o
-            self.dic[j][i][k] = -o
-            self.dic[k][j][i] = -o
+            self.chi[i][j][k] = o
+            self.chi[j][k][i] = o
+            self.chi[k][i][j] = o
+            self.chi[i][k][j] = -o
+            self.chi[j][i][k] = -o
+            self.chi[k][j][i] = -o
 
     def _repr_(self):
         r"""
         Maybe not pretty, but at least something.
         """
-        return {(i,j,k): self.dic[i][j][k] for i,j,k in combinations(range(10), 3)}
+        return {(i,j,k): self.chi[i][j][k] for i,j,k in combinations(range(10), 3)}
 
     def n_intersection_points(self):
         return len(self.intersection_points())
@@ -368,7 +368,7 @@ cdef class OrientedMatroid:
             for c,d in combinations(y, 2):
 
                 # Check if the points intersect.
-                if self.dic[a][b][c] != self.dic[a][b][d] and self.dic[c][d][a] != self.dic[c][d][b]:
+                if self.chi[a][b][c] != self.chi[a][b][d] and self.chi[c][d][a] != self.chi[c][d][b]:
 
                     # Check if there are between 2 and 4 points above and below each line (of the remaining 6).
                     # If is only one points below a line, then we cannot partition the 6 points into 3,3
@@ -377,9 +377,9 @@ cdef class OrientedMatroid:
                     counter2 = 0
                     for i in range(10):
                         if i not in (a,b,c,d):
-                            if self.dic[a][b][i] == 1:
+                            if self.chi[a][b][i] == 1:
                                 counter += 1
-                            if self.dic[c][d][i] == 1:
+                            if self.chi[c][d][i] == 1:
                                 counter2 += 1
                     if 2 <= counter <= 4 and 2 <= counter2 <= 4:
                         yield (a,b), (c,d)
@@ -412,12 +412,12 @@ cdef class OrientedMatroid:
             for i in sections[x]:
                 for j in sections[y]:
 
-                    if self.dic[i][j][a] == self.dic[i][j][b]:
+                    if self.chi[i][j][a] == self.chi[i][j][b]:
                         # The line i,j doesn't intersect the line a,b.
-                        dic[(i,j,z)] = self.dic[i][j][a]
-                    elif self.dic[i][j][d] == self.dic[i][j][c]:
+                        dic[(i,j,z)] = self.chi[i][j][a]
+                    elif self.chi[i][j][d] == self.chi[i][j][c]:
                         # The line i,j doesn't intersect the line c,d.
-                        dic[(i,j,z)] = self.dic[i][j][c]
+                        dic[(i,j,z)] = self.chi[i][j][c]
                     else:
                         # The line i,j intersects a,b and c,d.
                         w,v = (0,3) if (x,y) == (1,2) else (1,2)
@@ -425,7 +425,7 @@ cdef class OrientedMatroid:
                         # We can choose the orientation of i,j,z iff the points
                         # in the sections w,v lie on the correct sides.
 
-                        if self.dic[a][b][c] == 1:
+                        if self.chi[a][b][c] == 1:
                             # In this case section 1 lies between a and c etc.
 
                             # Case 1: x == 0, y == 3:
@@ -459,17 +459,17 @@ cdef class OrientedMatroid:
                             # means that i-j-z is oriented just like i-j-a.
 
                             for k in sections[w]:
-                                if self.dic[i][j][k] != self.dic[i][j][a]:
+                                if self.chi[i][j][k] != self.chi[i][j][a]:
                                     # the point k is "in between" the intersection point
                                     # and i,j
-                                    dic[(i,j,z)] = self.dic[i][j][k]
+                                    dic[(i,j,z)] = self.chi[i][j][k]
                                     break
                             else:
                                 for l in sections[v]:
-                                    if self.dic[i][j][l] == self.dic[i][j][a]:
+                                    if self.chi[i][j][l] == self.chi[i][j][a]:
                                         # the point l is "in between" the intersection point
                                         # and i,j
-                                        dic[(i,j,z)] = self.dic[i][j][l]
+                                        dic[(i,j,z)] = self.chi[i][j][l]
                                         break
                         else:
                             # In this case section 2 lies between a and c etc.
@@ -504,17 +504,17 @@ cdef class OrientedMatroid:
                             # Likewise i-j-l oriented the same as i-j-b for any l in v
                             # means that i-j-z is oriented just like i-j-ab
                             for k in sections[w]:
-                                if self.dic[i][j][k] != self.dic[i][j][b]:
+                                if self.chi[i][j][k] != self.chi[i][j][b]:
                                     # the point k is "in between" the intersection point
                                     # and i,j
-                                    dic[(i,j,z)] = self.dic[i][j][k]
+                                    dic[(i,j,z)] = self.chi[i][j][k]
                                     break
                             else:
                                 for l in sections[v]:
-                                    if self.dic[i][j][l] == self.dic[i][j][b]:
+                                    if self.chi[i][j][l] == self.chi[i][j][b]:
                                         # the point l is "in between" the intersection point
                                         # and i,j
-                                        dic[(i,j,z)] = self.dic[i][j][l]
+                                        dic[(i,j,z)] = self.chi[i][j][l]
                                         break
 
                     if (i,j,z) not in dic:
@@ -542,8 +542,8 @@ cdef class OrientedMatroid:
                     # This case has already been handled above.
                     continue
 
-                x = self.dic[i1][j1][i2]
-                y = self.dic[i1][j1][j2]
+                x = self.chi[i1][j1][i2]
+                y = self.chi[i1][j1][j2]
                 if x == y:
                     # i2,j2 are both on the same side of i1,j1.
 
@@ -551,8 +551,8 @@ cdef class OrientedMatroid:
                     # This means that if the intersection point is on the other side of (i1,j1), than the same must hold for (i2,j2).
                     implications[one][-x].append(two)
 
-                x = self.dic[i2][j2][i1]
-                y = self.dic[i2][j2][j1]
+                x = self.chi[i2][j2][i1]
+                y = self.chi[i2][j2][j1]
                 if x == y:
                     # i1,j1 are both on the same side of i2,j2.
 
@@ -562,13 +562,13 @@ cdef class OrientedMatroid:
 
             elif i1 != i2:
                 # This means that j1 == j2.
-                x = self.dic[i1][j1][i2]
+                x = self.chi[i1][j1][i2]
                 # If the intersection point and i2 are on different sides of i1-j1 this implies that
                 # the orientation i1-j1-intersection is the same as i2-j2-intersection (j1 == j2).
                 implications[one][-x].append(two)
             else:
                 # This means that i1 == i2.
-                y = self.dic[i1][j1][j2]
+                y = self.chi[i1][j1][j2]
                 # If the intersection point and j2 are on different sides of i1-j1 this implies that
                 # the orientation i1-j1-intersection is the same as i2-j2-intersection (i1 == i2).
                 implications[one][-y].append(two)
@@ -609,9 +609,9 @@ cdef class OrientedMatroid:
             for i in others:
                 count = 0
                 # i belongs to an odd region iff a,b,i is oriented counter-clock-wise.
-                count += int(self.dic[a][b][i] == 1)
+                count += int(self.chi[a][b][i] == 1)
                 # i belongs to region >= 2 iff c,d,i is oriented counter-clock-wise.
-                count += 2*int(self.dic[c][d][i] == 1)
+                count += 2*int(self.chi[c][d][i] == 1)
                 sections[count].append(i)
                 sections_op[i] = count
             self._sections[a, b, c, d] = (sections, sections_op, others)
@@ -779,7 +779,7 @@ cdef class OrientedMatroid:
         c1,d1 = (i,j) if a == k else (k,l)
 
         # Reorient c1,d1 such that c,d,a is counter-clockwise.
-        if self.dic[c1][d1][a] == 1:
+        if self.chi[c1][d1][a] == 1:
             c,d = c1,d1
         else:
             c,d = d1,c1
@@ -793,12 +793,12 @@ cdef class OrientedMatroid:
                 # This is the section defining the intersection.
                 index_cd = index
                 continue
-            if self.dic[a][b][i1] == self.dic[a][b][j1] or self.dic[i1][j1][a] == self.dic[i1][j1][b]:
+            if self.chi[a][b][i1] == self.chi[a][b][j1] or self.chi[i1][j1][a] == self.chi[i1][j1][b]:
                 # The lines don't even intersect.
                 continue
 
             # Orient i,j,a counter-clock-wise.
-            if self.dic[i1][j1][a] == -1:
+            if self.chi[i1][j1][a] == -1:
                 j = i1
                 i = j1
             else:
@@ -822,14 +822,14 @@ cdef class OrientedMatroid:
                     above_below[index] = 1
 
             elif i in (c,d):
-                if self.dic[c][d][j] == 1:
+                if self.chi[c][d][j] == 1:
                     # j lies above c,d, (i is c or d) therefore
                     # i-j intersects a,b, above c,d.
                     above_below[index] = 1
                 else:
                     above_below[index] = -1
             elif j in (c,d):
-                if self.dic[c][d][i] == 1:
+                if self.chi[c][d][i] == 1:
                     # As above.
                     above_below[index] = 1
                 else:
@@ -838,8 +838,8 @@ cdef class OrientedMatroid:
                 # In all remaining cases i,j must both lie above or both below c,d,
                 # otherwise the location of the section i,j with respect to the intersection point (a,b,c,d)
                 # would be up to a choice and would therefore be needed to be in the dictionary.
-                assert self.dic[c][d][i] == self.dic[c][d][j]
-                if self.dic[c][d][i] == 1:
+                assert self.chi[c][d][i] == self.chi[c][d][j]
+                if self.chi[c][d][i] == 1:
                     above_below[index] = 1
                 else:
                     above_below[index] = -1
@@ -866,15 +866,15 @@ cdef class OrientedMatroid:
             others = tuple(i for i in range(10) if i != x)
             a = others[0]
             for b,c in combinations(others[1:], 2):
-                if self.dic[a][b][x] == self.dic[b][c][x] == self.dic[c][a][x]:
+                if self.chi[a][b][x] == self.chi[b][c][x] == self.chi[c][a][x]:
                     # x in (convex hull of) a,b,c
                     others1 = tuple(i for i in range(10) if not i in (x,a,b,c))
                     d = others1[0]
                     for e,f in combinations(others1[1:], 2):
                         # x in d,e,f
-                        if self.dic[d][e][x] == self.dic[e][f][x] == self.dic[f][d][x]:
+                        if self.chi[d][e][x] == self.chi[e][f][x] == self.chi[f][d][x]:
                             g,h,i = tuple(i for i in range(10) if not i in (x,a,b,c,d,e,f))
-                            if self.dic[g][h][x] == self.dic[h][i][x] == self.dic[i][g][x]:
+                            if self.chi[g][h][x] == self.chi[h][i][x] == self.chi[i][g][x]:
                                 # x in g,h,i
                                 yield ((x,), (a,b,c), (d,e,f), (g,h,i))
 
@@ -900,8 +900,8 @@ cdef class OrientedMatroid:
                         v1,v2 = tuple(w for w in (x,y,z) if not (w in sections[k] or w in sections[l]))
                         v3 = tuple(w for w in (x,y,z) if not w in (v1,v2))[0]
                         if (v1,v2,intersection) in dic:
-                            return dic[(v1,v2,intersection)] == self.dic[v1][v2][v3]
-                        return dic[(v2,v1,intersection)] == self.dic[v2][v1][v3]
+                            return dic[(v1,v2,intersection)] == self.chi[v1][v2][v3]
+                        return dic[(v2,v1,intersection)] == self.chi[v2][v1][v3]
                     else:
                         # the vertices are only in two sections
                         one = tuple(w for w in (x,y,z) if w in sections[i])
