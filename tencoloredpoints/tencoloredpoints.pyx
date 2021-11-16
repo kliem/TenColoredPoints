@@ -396,13 +396,19 @@ cdef class OrientedMatroid:
 
     def _possibilities_for_intersection(self, int a, int b, int c, int d):
         r"""
-        Iterate over all possible dictionaries for ab \cap cd.
+        Iterate over all possible extensions of the chirotope to `ab \cap cd`.
 
-        Possible means, we can extend this oriented matroid by the intersection ab \cap cd,
-        located according to the dictionary.
+        However, we will only determine those orientations relevant in determining Tverberg
+        partitions of type 3,3,2,2 involving `ab \cap cd`. This might identify two or more
+        extensions.
+
+        Also, we do not check all axioms. So some extensions might not even be valid.
         """
         # We put each of the remaining 6 points in the correct region induced by ab and cd.
-        # Note that the opposite regions are 0,3 and 1,2.
+        # i and j lie in opposite regions, if
+        # ``self.chi[a][b][i] != self.chi[a][b][j]`` and
+        # ``self.chi[c][d][i] != self.chi[c][d][j]``.
+        # Note that the opposite regions are indexed by 0,3 and 1,2.
         cdef int i,j,x,y,w,v,k,l, n_oposed, one, two, one_val, two_val, i1, i2, j1, j2
 
         sections, section_dic, _ = self.sections(a,b,c,d)
@@ -600,11 +606,14 @@ cdef class OrientedMatroid:
 
     def sections(self, int a, int b, int c, int d):
         r"""
-        The 2 lines ab and cd give 4 quadrants/sections.
+        The 2 lines ab and cd give 4 quadrants/sections parametrized by
+        ``(self.chi[a][b][i], self.chi[c][d][i])`` for each ``i`` different from
+        ``a, b, c, d``.
 
         Sort the other points in those sections.
 
-        Return the sections, an inverse dictionary and a tuple of the other points.
+        Return the sections, an inverse dictionary and a tuple of the other points
+        (all points different from ``a, b, c, d``).
         """
         if (a, b, c, d) not in self._sections:
             sections = [[], [], [], []]
