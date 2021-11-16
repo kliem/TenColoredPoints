@@ -359,6 +359,10 @@ cdef class OrientedMatroid:
         Iterate over all pairs (a,b), (c,d)
         such that the lines ab and cd intersect
         and there could be a Tverberg partition with this intersection point.
+
+        See Lemma 2.4.
+
+        TODO: Relabel to Lem:IntersectionPoints.
         """
         cdef int a,b,c,d
         cdef tuple y
@@ -371,8 +375,8 @@ cdef class OrientedMatroid:
                 if self.chi[a][b][c] != self.chi[a][b][d] and self.chi[c][d][a] != self.chi[c][d][b]:
 
                     # Check if there are between 2 and 4 points above and below each line (of the remaining 6).
-                    # If is only one points below a line, then we cannot partition the 6 points into 3,3
-                    # where the convex hull of each three contains ab \cap cd.
+                    # A triangle containing ab \cap cd must have at least one point above and below the lines ab and cd.
+                    # Thus at least two points are needed, to construct two such triangle.
                     counter = 0
                     counter2 = 0
                     for i in range(10):
