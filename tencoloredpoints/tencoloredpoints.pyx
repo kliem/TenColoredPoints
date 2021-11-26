@@ -8,7 +8,6 @@
 from functools import lru_cache
 from itertools import combinations, permutations, product, chain
 from memory_allocator cimport MemoryAllocator
-from pseudo_order_types.pseudo_order_types import pseudo_order_type_iterator
 
 cimport cython
 
@@ -16,20 +15,25 @@ from libc.stdio                       cimport FILE, fopen, fclose, fwrite, fread
 
 from libcpp cimport bool
 
-cdef extern from "KPartiteKClique/kpkc.cpp":
-    cdef cppclass KPartiteKClique:
+cdef extern from "KPartiteKClique/kpkc.cpp" namespace "kpkc":
+    cdef cppclass KPartiteKClique "kpkc::KPartiteKClique<kpkc::kpkc>":
+        KPartiteKClique(bool **, int n_vertices, int* first_per_part, int k, int prec_depth) except +
         KPartiteKClique(bool **, int n_vertices, int* first_per_part, int k) except +
-        bool next() except +
         const int* k_clique()
+
+        # Do NOT wrap this in cysignals sig_on/sig_off, it has its own interrupt handling.
+        # Its own interrupt handling exits at safe states, so that this can be called again
+        # to continue.
+        bool next() except +
 
     cdef cppclass Bitset:
         Bitset(int n_vertices)
         int first(int start)
         void set(int)
 
-cdef extern from "bitset2.cpp":
+cdef extern from "bitset2.cpp" namespace "tencoloredpoints":
     cdef cppclass Bitset2(Bitset):
-        Bitset2(int n_vertices)
+        Bitset2(int)
         void clear()
         void operator=(const Bitset2&)
         void flip_inplace()
@@ -40,19 +44,32 @@ cdef class Bitset_wrapper:
     cdef Bitset2* ptr
     cdef int n_vertices
 
-    def __cinit__(self, int n_vertices, iterable=None):
+    def __cinit__(self, int n_vertices, iterable=[]):
+        """
+        Initialize a bitset with ``n_vertices`` bits.
+
+        The number of bits are assumed to be a multiple of 256.
+
+        Set exactly the bits in ``iterable``.
+        """
+        if n_vertices % 256:
+            raise ValueError("n_vertices must be a multiple of 256")
         self.ptr = new Bitset2(n_vertices)
         self.n_vertices = n_vertices
         cdef int i
         self.ptr.clear()
-        if iterable is not None:
-            for i in iterable:
-                self.ptr.set(i)
+        for i in iterable:
+            if not 0 <= i < n_vertices:
+                raise IndexError("can't set that bit")
+            self.ptr.set(i)
 
     def __dealloc__(self):
         del self.ptr
 
     cdef void clear(self):
+        """
+        Set all bits to zero.
+        """
         self.ptr.clear()
 
     cdef Bitset_wrapper copy(self):
@@ -61,17 +78,24 @@ cdef class Bitset_wrapper:
         return foo
 
     cdef void flip_inplace(self):
-        """
+        r"""
         Note that one needs to consider trailing bits for this to make sense.
 
-        In our case, we make sure that ``n_vertices`` is a multiple of 256.
+        In :meth:`__cinit__` we assure that we do not have trailing bits.
         """
         self.ptr.flip_inplace()
 
-    cdef void union_assign(self, Bitset_wrapper l, Bitset_wrapper r):
+    cdef int union_assign(self, Bitset_wrapper l, Bitset_wrapper r) except -1:
+        """
+        Set ``self`` to be the union of ``l`` and ``r``.
+        """
+        if not self.n_vertices == l.n_vertices == r.n_vertices:
+            raise ValueError("the lengths of the bitsets do not agree")
         self.ptr.union_assign(l.ptr[0], r.ptr[0])
 
-    cdef inline void set(self, int i):
+    cdef inline int set(self, int i) except -1:
+        if not 0 <= i < self.n_vertices:
+            raise IndexError("can't set that bit")
         self.ptr.set(i)
 
     cdef inline int first(self, int i):
@@ -203,6 +227,7 @@ def check_all_colors_pseudo(start=0, end=2**20):
     r"""
     Check for each pseoduo order set the possible counter example color indices, if any.
     """
+    from pseudo_order_types.pseudo_order_types import pseudo_order_type_iterator
     return _check_all_colors(start, end, pseudo_order_type_iterator(10, "/srv/public/kliem/OrderSets/10"))
 
 def _check_all_colors(start, end, iterator):

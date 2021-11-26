@@ -6,12 +6,16 @@
 
 // Bitsets
 
+namespace tencoloredpoints {
+
 void Bitset2::clear(){
-    memset(data, 0, limbs*8);
+    for(int i=0; i<limbs; i++)
+        data[i] = 0;
 }
 
 void Bitset2::operator=(const Bitset2& obj){
-    memcpy(data, obj.data, limbs*8);
+    for(int i=0; i<limbs; i++)
+        data[i] = obj.data[i];
 }
 
 inline void Bitset2::flip_inplace(){
@@ -19,7 +23,9 @@ inline void Bitset2::flip_inplace(){
         data[i] = ~data[i];
 }
 
-inline void Bitset2::union_assign(Bitset2& l, Bitset2& r){
+inline void Bitset2::union_assign(const Bitset2& l, const Bitset2& r){
     for(int i = 0; i < limbs; i++)
         data[i] = l[i] | r[i];
+}
+
 }
