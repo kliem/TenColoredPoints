@@ -590,7 +590,7 @@ cdef class OrientedMatroid:
             for i in range(n_opposed -1):
                 val = chosen[i]
 
-                if not all(chosen[k] == val for k in  implications[i][val]):
+                if not all(chosen[k] == val for k in implications[i][val]):
                     break
             else:
                 yield {opposed[k]: chosen[k] for k in range(n_opposed)}

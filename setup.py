@@ -37,7 +37,7 @@ setup(
     zip_safe=False,
     python_requires='>=3.6',
     package_dir={'tencoloredpoints': 'tencoloredpoints'},
-    install_requires=["Cython", "memory_allocator", "pseudo_order_types"],
+    install_requires=["Cython", "memory_allocator"],
     package_data={"tencoloredpoints": ["*.pxd"]},
     cmdclass={'build_ext': build_ext},
     classifiers=[
