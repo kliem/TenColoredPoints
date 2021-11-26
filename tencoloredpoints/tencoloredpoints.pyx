@@ -17,7 +17,6 @@ from libcpp cimport bool
 
 cdef extern from "KPartiteKClique/kpkc.cpp" namespace "kpkc":
     cdef cppclass KPartiteKClique "kpkc::KPartiteKClique<kpkc::kpkc>":
-        KPartiteKClique(bool **, int n_vertices, int* first_per_part, int k, int prec_depth) except +
         KPartiteKClique(bool **, int n_vertices, int* first_per_part, int k) except +
         const int* k_clique()
 
@@ -27,7 +26,7 @@ cdef extern from "KPartiteKClique/kpkc.cpp" namespace "kpkc":
         bool next() except +
 
     cdef cppclass Bitset:
-        Bitset(int n_vertices)
+        Bitset(int)
         int first(int start)
         void set(int)
 
@@ -37,29 +36,29 @@ cdef extern from "bitset2.cpp" namespace "tencoloredpoints":
         void clear()
         void operator=(const Bitset2&)
         void flip_inplace()
-        void union_assign(Bitset2& l, Bitset2& r)
+        void union_assign(const Bitset2& l, const Bitset2& r)
 
 
 cdef class Bitset_wrapper:
     cdef Bitset2* ptr
-    cdef int n_vertices
+    cdef int n_bits
 
-    def __cinit__(self, int n_vertices, iterable=[]):
+    def __cinit__(self, int n_bits, iterable=[]):
         """
-        Initialize a bitset with ``n_vertices`` bits.
+        Initialize a bitset with ``n_bits`` bits.
 
         The number of bits are assumed to be a multiple of 256.
 
         Set exactly the bits in ``iterable``.
         """
-        if n_vertices % 256:
-            raise ValueError("n_vertices must be a multiple of 256")
-        self.ptr = new Bitset2(n_vertices)
-        self.n_vertices = n_vertices
+        if n_bits % 256:
+            raise ValueError("n_bits must be a multiple of 256")
+        self.ptr = new Bitset2(n_bits)
+        self.n_bits= n_bits
         cdef int i
         self.ptr.clear()
         for i in iterable:
-            if not 0 <= i < n_vertices:
+            if not 0 <= i < n_bits:
                 raise IndexError("can't set that bit")
             self.ptr.set(i)
 
@@ -73,7 +72,7 @@ cdef class Bitset_wrapper:
         self.ptr.clear()
 
     cdef Bitset_wrapper copy(self):
-        cdef Bitset_wrapper foo = Bitset_wrapper(self.n_vertices)
+        cdef Bitset_wrapper foo = Bitset_wrapper(self.n_bits)
         foo.ptr[0] = self.ptr[0]
         return foo
 
@@ -89,12 +88,12 @@ cdef class Bitset_wrapper:
         """
         Set ``self`` to be the union of ``l`` and ``r``.
         """
-        if not self.n_vertices == l.n_vertices == r.n_vertices:
+        if not self.n_bits == l.n_bits == r.n_bits:
             raise ValueError("the lengths of the bitsets do not agree")
         self.ptr.union_assign(l.ptr[0], r.ptr[0])
 
     cdef inline int set(self, int i) except -1:
-        if not 0 <= i < self.n_vertices:
+        if not 0 <= i < self.n_bits:
             raise IndexError("can't set that bit")
         self.ptr.set(i)
 
@@ -103,58 +102,50 @@ cdef class Bitset_wrapper:
 
 
 def color_iterator():
+    r"""
+    Iterate over all partitions of 10 points `C_1, \dots, C_m` such that
+    `3 \geq |C_1| \geq |C_2| \geq \dots \geq |C_m|` and such that `|C_{m-1}| + |C_m| > 3`.
     """
-    Iterate through all possible colors of points for the colorful Tverberg with 10 points.
-    """
-    # 3,3,3,1
+    # Type (3, 3, 3, 1)
     for i in range(10):
-        d = (i,)
-        other = tuple(j for j in range(10) if not j == i)
-        other_new = other[1:]
-        k = other[0]
-        for l,m in combinations(other_new, 2):
-            a = (k,l,m)
-            other2 = tuple(j for j in range(10) if not (j == i or j in a))
-            n = other2[0]
-            other2_new = other2[1:]
-            for o,p in combinations(other2_new, 2):
-                b = (n,o,p)
-                other3 = tuple(j for j in range(10) if not (j ==i or j in a or j in b))
-                yield (a,b,other3,d)
+        D = (i,)
+        a0, *other = (j for j in range(10) if j != i)
+        for a12 in combinations(other, 2):
+            A = a0, *a12
+            b0, *other2 = (j for j in other if j not in A)
+            for b12 in combinations(other2, 2):
+                B = b0, *b12
+                C = tuple(j for j in other2 if j not in B)
+                yield (A, B, C, D)
 
-    # 3,3,2,2
-    for four in combinations(range(10),4):
-        six = tuple(i for i in range(10) if not i in four)
-        a = six[0]
-        five = six[1:]
-        g = four[0]
-        three = four[1:]
-        for h in three:
-            C = (g,h)
-            D = tuple(i for i in three if not i == h)
-            for b,c in combinations(five,2):
-                A = (a,b,c)
-                B = tuple(i for i in five if not i in A)
-                yield (A,B,C,D)
+    # Type (3, 3, 2, 2)
+    for four in combinations(range(10), 4):
+        c0, *three = four
+        a0, *five = tuple(i for i in range(10) if i not in four)
+        for c1 in three:
+            C = (c0, c1)
+            D = tuple(i for i in three if not i == c1)
+            for a12 in combinations(five, 2):
+                A = a0, *a12
+                B = tuple(i for i in five if i not in A)
+                yield (A, B, C, D)
 
-    # 2,2,2,2,2
-    a = 0
-    for b in range(1,10):
-        A = (a,b)
-        A1 = tuple(i for i in range(1,10) if not i == b)
-        c = A1[0]
-        for d in A1[1:]:
-            B = (c,d)
-            B1 = tuple(i for i in A1 if not i in B)
-            e = B1[0]
-            for f in B1[1:]:
-                C = (e,f)
-                C1 = tuple(i for i in B1 if not i in C)
-                g = C1[0]
-                for h in C1[1:]:
-                    D = (g,h)
-                    E = tuple(i for i in C1 if not i in D)
-                    yield (A,B,C,D,E)
+    # Type (2, 2, 2, 2, 2)
+    a0 = 0
+    for a1 in range(1, 10):
+        A = (a0, a1)
+        b0, *other = (i for i in range(1, 10) if i != a1)
+        for b1 in other:
+            B = (b0, b1)
+            c0, *other2 = (i for i in other if i != b1)
+            for c1 in other2:
+                C = (c0, c1)
+                d0, *other3 = (i for i in other2 if i != c1)
+                for d1 in other3:
+                    D = (d0, d1)
+                    E = tuple(i for i in other3 if i != d1)
+                    yield (A, B, C, D, E)
+
 
 @lru_cache(None)
 def all_colors():
@@ -171,82 +162,35 @@ def all_colors():
         return dic
     return tuple(to_dic(c) for c in color_iterator())
 
+
 @lru_cache(None)
 def n_colors():
     return len(all_colors())
+
 
 @lru_cache(None)
 def colors_for_partition(partition):
     r"""
     Given a partition.
 
-    Return a bitset with each color set, where this partition is colorful.
+    Return a bitset with each color set, where this partition is rainbow.
+
+    In addition set trailing bits.
     """
-    cap = ((n_colors()-1)//256 + 1)*256
-    return Bitset_wrapper(cap, chain(_colors_for_partition(partition), range(n_colors(),cap)))
+    cap = ((n_colors() - 1) // 256 + 1) * 256
+    return Bitset_wrapper(cap, chain(_colors_for_partition(partition), range(n_colors(), cap)))
+
 
 def _colors_for_partition(partition):
-    for i,color in enumerate(all_colors()):
+    """
+    Yield the indices of the color partitions, where the given partition is rainbow.
+    """
+    for i, color in enumerate(all_colors()):
         partition2 = [[color[x] for x in y] for y in partition]
         # Each part in the partition must contain each color at most once.
         if all(len(set(x)) == len(x) for x in partition2):
             yield i
 
-def OrderTypesIterator():
-    r"""
-    Iterate through all order types in general position for 10 points.
-
-    See http://www.ist.tugraz.at/staff/aichholzer/research/rp/triangulations/ordertypes/
-    """
-    filename = "/srv/public/kliem/OrderTypes/otypes10.b16"
-    with open(filename, "rb") as f:
-        for i in range(14309547):
-            data = f.read(40)
-            yield tuple((int.from_bytes(data[4*i:4*i+2], "little"), int.from_bytes(data[4*i+2:4*i+4], "little")) for i in range(10))
-
-def OrderType(n):
-    r"""
-    Return the n-th order type.
-
-    See ``OrderTypesIterator``.
-    """
-    filename = "/srv/public/kliem/OrderTypes/otypes10.b16"
-    assert n in range(14309547)
-    with open(filename, "rb") as f:
-        f.seek(40*n)
-        data = f.read(40)
-        return tuple((int.from_bytes(data[4*i:4*i+2], "little"), int.from_bytes(data[4*i+2:4*i+4], "little")) for i in range(10))
-
-def check_all_colors(start=0, end=2**20):
-    r"""
-    Check for each order set the possible counter example color indices, if any.
-    """
-    return _check_all_colors(start, end, OrderTypesIterator())
-
-def check_all_colors_pseudo(start=0, end=2**20):
-    r"""
-    Check for each pseoduo order set the possible counter example color indices, if any.
-    """
-    from pseudo_order_types.pseudo_order_types import pseudo_order_type_iterator
-    return _check_all_colors(start, end, pseudo_order_type_iterator(10, "/srv/public/kliem/OrderSets/10"))
-
-def _check_all_colors(start, end, iterator):
-    """
-    See above.
-    """
-    for i,O1 in enumerate(iterator):
-        if i < start:
-            continue
-        if i >= end:
-            break
-        O = OrientedMatroid(O1)
-        if i % 1000 == 0:
-            print("currently doing: ", i)
-        try:
-            _ = poss_color_finder(O)
-        except ValueError:
-            # There appears to be a counter example.
-            raise ValueError("found counterexample at index {}".format(i))
 
 def orientation(p1, p2, p3):
     # to find the orientation of
@@ -272,12 +216,14 @@ def orientation(p1, p2, p3):
         # Colinear orientation
         return 0
 
+
 @lru_cache(None)
 def combs():
     return tuple(combinations(range(10), 3))
 
+
 @cython.final
-cdef class OrientedMatroid:
+cdef class Chirotope:
     r"""
     An Oriented Matroid with 10 points and methods that help to analyze
     the Tverberg situation.
@@ -285,7 +231,7 @@ cdef class OrientedMatroid:
     cdef dict __dict__
     cdef int ***chi
     cdef MemoryAllocator __mem__
-    cdef object __intersection_points
+    cdef object __valid_intersection_points
     cdef dict __possibilities_for_intersection
     cdef dict _obtain_dic
     cdef dict _sections
@@ -303,7 +249,7 @@ cdef class OrientedMatroid:
         - 10 points in the plane
         """
         self.__mem__ = MemoryAllocator()
-        self.__intersection_points = None
+        self.__valid_intersection_points = None
         self.__possibilities_for_intersection = {}
         self._obtain_dic = {}
         self._sections = {}
@@ -362,24 +308,24 @@ cdef class OrientedMatroid:
         """
         return {(i,j,k): self.chi[i][j][k] for i,j,k in combinations(range(10), 3)}
 
-    def n_intersection_points(self):
-        return len(self.intersection_points())
+    def n_valid_intersection_points(self):
+        return len(self.valid_intersection_points())
 
-    def intersection_points(self):
+    def valid_intersection_points(self):
         r"""
         A tuple containing all the intersection points.
 
         The intersection points with the least number of possibilities first.
         """
-        if self.__intersection_points:
-            return self.__intersection_points
+        if self.__valid_intersection_points:
+            return self.__valid_intersection_points
         def my_len(i):
             (a,b), (c,d) = i
             return len(self.possibilities_for_intersection(a,b,c,d))
-        self.__intersection_points = tuple(sorted(tuple(self._intersection_points()), key=my_len))
-        return self.__intersection_points
+        self.__valid_intersection_points = tuple(sorted(tuple(self._valid_intersection_points()), key=my_len))
+        return self.__valid_intersection_points
 
-    def _intersection_points(self):
+    def _valid_intersection_points(self):
         r"""
         Iterate over all pairs (a,b), (c,d)
         such that the lines ab and cd intersect
@@ -625,7 +571,7 @@ cdef class OrientedMatroid:
         Number of possibilities for intersection number i.
         """
         if i not in self._n_poss_cache:
-            (a,b), (c,d) = self.intersection_points()[i]
+            (a,b), (c,d) = self.valid_intersection_points()[i]
             self._n_poss_cache[i] = len(self.possibilities_for_intersection(a,b,c,d))
         return self._n_poss_cache[i]
 
@@ -660,41 +606,12 @@ cdef class OrientedMatroid:
         Obtain the j-th possibility for the i-th intersection point.
         """
         if (i, j) not in self._obtain_dic:
-            (a,b), (c,d) = self.intersection_points()[i]
+            (a,b), (c,d) = self.valid_intersection_points()[i]
             dic = self.possibilities_for_intersection(a,b,c,d)[j]
             self._obtain_dic[i, j] = (dic, a,b,c,d)
         return self._obtain_dic[i, j]
 
-    cdef int ****__consistency_cache__
-
     cpdef inline bint check_for_consistency_cached(self, int i, int j, int k, int l):
-        r"""
-        See below.
-        """
-        cdef int a,b,c,d,a1,b1,c1,d1,n
-
-        # Initialize cache.
-        if self.__consistency_cache__ is NULL:
-            n = self.n_intersection_points()
-            self.__consistency_cache__ = <int****> self.__mem__.allocarray(n, sizeof(int ***))
-            for a in range(n):
-                self.__consistency_cache__[a] = <int***> self.__mem__.allocarray(self._n_poss(a), sizeof(int **))
-                for b in range(self._n_poss(a)):
-                    self.__consistency_cache__[a][b] = <int**> self.__mem__.allocarray(n, sizeof(int *))
-                    for c in range(n):
-                        self.__consistency_cache__[a][b][c] = <int*> self.__mem__.calloc(self._n_poss(c), sizeof(int))
-
-        cdef dict dic1, dic2
-
-        if self.__consistency_cache__[i][j][k][l]:
-            return self.__consistency_cache__[i][j][k][l] -1
-        dic1, a,b,c,d = self.obtain_dic(i,j)
-        dic2, a1,b1,c1,d1 = self.obtain_dic(k,l)
-        foo = self.check_for_consistency(dic1, dic2, i,j,k,l, a,b,c,d,a1,b1,c1,d1)
-        self.__consistency_cache__[i][j][k][l] = int(foo) + 1
-        return foo
-
-    cpdef inline bint check_for_consistency(self, dict dic1, dict dic2, int i, int j, int k, int l, int a, int b, int c, int d, int a1, int b1, int c1, int d1):
         r"""
         Check if the two choices for intersection points are consistent.
 
@@ -704,6 +621,12 @@ cdef class OrientedMatroid:
 
         Otherwise, we say that the are consistent.
         """
+        cdef int a, b, c, d, a1, b1, c1, d1, n
+
+        cdef dict dic1, dic2
+
+        dic1, a,b,c,d = self.obtain_dic(i,j)
+        dic2, a1,b1,c1,d1 = self.obtain_dic(k,l)
         if a == -1:
             intersections2 = []
             for dic in (dic1, dic2):
@@ -777,7 +700,7 @@ cdef class OrientedMatroid:
 
         # Initialize cache
         if self.__above_below_cache__ is NULL:
-            n = self.n_intersection_points()
+            n = self.n_valid_intersection_points()
             self.__above_below_cache__ = <int****> self.__mem__.allocarray(n, sizeof(int ***))
             for x in range(n):
                 self.__above_below_cache__[x] = <int***> self.__mem__.allocarray(self._n_poss(x), sizeof(int **))
@@ -885,35 +808,46 @@ cdef class OrientedMatroid:
 
     cdef Bitset_wrapper partitions_one_bitset(self):
         r"""
-        Return a bitset that has each color index set to 1, for which there IS Tverberg partition of type 3,3,3,1
+        Return a bitset that has each color index set to 1, for which there is Tverberg partition of type 3, 3, 3, 1.
+
+        The trailing bits are also set to 1.
         """
         cdef Bitset_wrapper foo
         if self._partitions_one_bitset is None:
-            cap = ((n_colors()-1)//256 + 1)*256
-            foo = Bitset_wrapper(cap, range(n_colors(),cap))
+            # Set ``foo`` to a bitset with all trailing bits set.
+            cap = ((n_colors() - 1) // 256 + 1) * 256
+            foo = Bitset_wrapper(cap, range(n_colors(), cap))
+
             for part in self._partitions_one():
+                # Set the indices the 1 that correspond to color partitions,
+                # for which ``part`` is rainbow.
                 foo.union_assign(foo, colors_for_partition(part))
+
             self._partitions_one_bitset = foo
+
         return self._partitions_one_bitset
 
     def _partitions_one(self):
         r"""
-        Obtain all tverberg partitions that are determined by oriented matroid on 10 points, i.e. partitions with one point in three triangles.
+        Obtain all Tverberg partitions of type (3, 3, 3, 1) determined by this chirotope.
         """
         for x in range(10):
             others = tuple(i for i in range(10) if i != x)
             a = others[0]
-            for b,c in combinations(others[1:], 2):
+            for b, c in combinations(others[1:], 2):
+                # We apply Lemma 2.7 to check whether x in conv(a, b, c).
+                # TODO: Relabel according to \ref{Lem:Restriction}.
                 if self.chi[a][b][x] == self.chi[b][c][x] == self.chi[c][a][x]:
-                    # x in (convex hull of) a,b,c
                     others1 = tuple(i for i in range(10) if not i in (x,a,b,c))
                     d = others1[0]
-                    for e,f in combinations(others1[1:], 2):
-                        # x in d,e,f
+                    for e, f in combinations(others1[1:], 2):
+                        # We apply Lemma 2.7 to check whether x in conv(d, e, f).
+                        # TODO: Relabel according to \ref{Lem:Restriction}.
                         if self.chi[d][e][x] == self.chi[e][f][x] == self.chi[f][d][x]:
-                            g,h,i = tuple(i for i in range(10) if not i in (x,a,b,c,d,e,f))
+                            g, h, i = tuple(i for i in range(10) if not i in (x,a,b,c,d,e,f))
+                            # We apply Lemma 2.7 to check whether x in conv(g, h, i).
+                            # TODO: Relabel according to \ref{Lem:Restriction}.
                             if self.chi[g][h][x] == self.chi[h][i][x] == self.chi[i][g][x]:
-                                # x in g,h,i
                                 yield ((x,), (a,b,c), (d,e,f), (g,h,i))
 
     def partitions_two(self, dict dic, int a, int b, int c, int d):
@@ -964,23 +898,28 @@ cdef class OrientedMatroid:
                 if is_triangle(e,f,g):
                     yield ((a,b), (c,d), (x,y,z), (e,f,g))
 
-    cdef Bitset_wrapper rainbow_partitions_cached(self, int i, int j):
+    cdef Bitset_wrapper rainbow_partitions(self, int y, int z):
         r"""
-        Return a bitset for intersection i,j that contains a 0 for each color,
-        that has a Tverberg partion for this choice (1 otherwise).
-        """
-        cdef int a,b,c,d
-        cdef dict dic
-        dic, a,b,c,d = self.obtain_dic(i,j)
-        return self.rainbow_partitions(dic, a,b,c,d)
+        Return a bitset for the ``z``-th choice for the intersection point ``y`.
 
-    cdef Bitset_wrapper rainbow_partitions(self, dict dic, int a, int b, int c, int d):
-        cdef Bitset_wrapper foo = self.partitions_one_bitset()
-        cdef Bitset_wrapper start = foo.copy()
-        for part in self.partitions_two(dic,a,b,c,d):
-            start.union_assign(start, colors_for_partition(part))
-        start.flip_inplace()
-        return start
+        The bitset indicates which color partition
+        does not have a rainbow Tverberg partition
+        of type (3, 3, 3, 1) or of type (3, 3, 2, 2) in ``y``.
+
+        It is set to 0 if this color partition has a rainbow Tverberg
+        partition of type (3, 3, 3, 1) or of type (3, 3, 2, 2) in ``y``.
+        """
+        cdef dict chi
+        cdef int a, b, c, d
+        chi, a, b, c, d = self.obtain_dic(y, z)
+        cdef Bitset_wrapper foo = self.partitions_one_bitset().copy()
+
+        for part in self.partitions_two(chi, a, b, c, d):
+            foo.union_assign(foo, colors_for_partition(part))
+
+        # Note that the trailing bits are set to 1 at this place.
+        foo.flip_inplace()
+        return foo
 
     def poss_graph(self):
         """
@@ -989,7 +928,7 @@ cdef class OrientedMatroid:
         """
         from sage.graphs.graph import Graph
         G = Graph()
-        ls = self.intersection_points()
+        ls = self.valid_intersection_points()
         n = len(ls)
         for i,j in combinations(range(n), 2):
             x = ls[i]
@@ -998,21 +937,25 @@ cdef class OrientedMatroid:
                 for l,b in enumerate(self.possibilities_for_intersection(*y[0], *y[1])):
                     if self.check_for_consistency_cached(i,k,j,l):
                         G.add_edge((i,k), (j,l))
+
+        # So far we have added all the vertices corresponding to valid intersection points
+        # and orientations.
+        # For each such vertex, we add an edge to those color partions, for which it does
+        # not induce a rainbow partition.
         V = G.vertices()
         cdef int num_colors = n_colors()
         for v in V:
-            rainbows = self.rainbow_partitions_cached(v[0], v[1])
+            rainbows = self.rainbow_partitions(v[0], v[1])
             l = rainbows.first(0)
             while l < num_colors:
                 G.add_edge(v, (n, l))
                 l = rainbows.first(l+1)
         return G
 
-# -------- Main algorithm
 
-def poss_color_finder(OrientedMatroid O):
+def poss_color_finder(Chirotope O):
     r"""
-    Determine all colors for which this OrientedMatroid has a solution:
+    Determine all colors for which this Chirotope has a solution:
 
     There exists some setup with the intersections so that the colors don't have a Tverberg Partition.
 
@@ -1038,7 +981,7 @@ def poss_color_finder(OrientedMatroid O):
     cdef Bitset_wrapper somea  # type awareness of cython
     cdef int i, j
 
-    cdef int k = O.n_intersection_points() + 1
+    cdef int k = O.n_valid_intersection_points() + 1
     cdef int* first_per_part = <int*> mem.allocarray(k, sizeof(int))
     cdef int counter = 0
     first_per_part[0] = 0
@@ -1060,15 +1003,15 @@ def poss_color_finder(OrientedMatroid O):
     cdef int offset_colors = first_per_part[k-1]
     cdef int offset_i, ind_i
     cdef long ind_color
-    cdef int n_vertices
+    cdef int n_color_bits
 
     for i in range(k-1):
         offset_i = first_per_part[i]
         for ind_i in range(O._n_poss(i)):
-            somea = O.rainbow_partitions_cached(i, ind_i)
+            somea = O.rainbow_partitions(i, ind_i)
             ind_color = somea.first(0)
-            n_vertices = somea.n_vertices
-            while ind_color < n_vertices:
+            n_color_bits = somea.n_bits
+            while ind_color < n_color_bits:
                 incidences[offset_i + ind_i][offset_colors + ind_color] = True
                 incidences[offset_colors + ind_color][offset_i + ind_i] = True
                 ind_color = somea.first(ind_color + 1)
@@ -1099,3 +1042,67 @@ def poss_color_finder(OrientedMatroid O):
         del K
 
     return []
+
+
+def OrderTypesIterator(filename=None):
+    r"""
+    Iterate through all order types in general position for 10 points.
+
+    See http://www.ist.tugraz.at/staff/aichholzer/research/rp/triangulations/ordertypes/
+    """
+    if filename is None:
+        filename = "/srv/public/kliem/OrderTypes/otypes10.b16"
+    with open(filename, "rb") as f:
+        data = f.read(40)
+        while len(data) == 40:
+            data = f.read(40)
+            yield tuple((int.from_bytes(data[4*i : 4*i + 2], "little"), int.from_bytes(data[4*i + 2:4*i + 4], "little")) for i in range(10))
+
+
+def OrderType(n):
+    r"""
+    Return the n-th order type.
+
+    See ``OrderTypesIterator``.
+    """
+    filename = "/srv/public/kliem/OrderTypes/otypes10.b16"
+    with open(filename, "rb") as f:
+        f.seek(40*n)
+        data = f.read(40)
+        if len(data) != 40:
+            raise IndexError
+        return tuple((int.from_bytes(data[4*i:4*i+2], "little"), int.from_bytes(data[4*i+2:4*i+4], "little")) for i in range(10))
+
+
+def check_all_colors(start=0, end=2**20):
+    r"""
+    Check for each order set the possible counter example color indices, if any.
+    """
+    return _check_all_colors(start, end, OrderTypesIterator())
+
+
+def check_all_colors_pseudo(start=0, end=2**20):
+    r"""
+    Check for each pseoduo order set the possible counter example color indices, if any.
+    """
+    from pseudo_order_types.pseudo_order_types import pseudo_order_type_iterator
+    return _check_all_colors(start, end, pseudo_order_type_iterator(10, "/srv/public/kliem/OrderSets/10"))
+
+
+def _check_all_colors(start, end, iterator):
+    """
+    See above.
+    """
+    for i, O1 in enumerate(iterator):
+        if i < start:
+            continue
+        if i >= end:
+            break
+        O = Chirotope(O1)
+        if i % 1000 == 0:
+            print("currently doing: ", i)
+        try:
+            _ = poss_color_finder(O)
+        except ValueError:
+            # There appears to be a counter example.
+            raise ValueError("found counter example at index {}".format(i))
