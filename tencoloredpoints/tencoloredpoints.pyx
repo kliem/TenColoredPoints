@@ -611,7 +611,7 @@ cdef class Chirotope:
             self._obtain_dic[i, j] = (dic, a,b,c,d)
         return self._obtain_dic[i, j]
 
-    cpdef inline bint check_for_consistency_cached(self, int i, int j, int k, int l):
+    cpdef inline bint check_for_consistency(self, int i, int j, int k, int l):
         r"""
         Check if the two choices for intersection points are consistent.
 
@@ -935,7 +935,7 @@ cdef class Chirotope:
             y = ls[j]
             for k,a in enumerate(self.possibilities_for_intersection(*x[0], *x[1])):
                 for l,b in enumerate(self.possibilities_for_intersection(*y[0], *y[1])):
-                    if self.check_for_consistency_cached(i,k,j,l):
+                    if self.check_for_consistency(i,k,j,l):
                         G.add_edge((i,k), (j,l))
 
         # So far we have added all the vertices corresponding to valid intersection points
@@ -1028,7 +1028,7 @@ def poss_color_finder(Chirotope O):
                 offset_j = first_per_part[j]
                 for ind_j in range(O._n_poss(j)):
                     # There is an arc between those vertices if and only if i,ind_i and j,ind_j are consistent.
-                    if O.check_for_consistency_cached(i, ind_i, j, ind_j):
+                    if O.check_for_consistency(i, ind_i, j, ind_j):
                         incidences[offset_i + ind_i][offset_j+ ind_j] = True
                         incidences[offset_j + ind_j][offset_i+ ind_i] = True
 
