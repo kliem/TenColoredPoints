@@ -503,6 +503,134 @@ cdef class Chirotope:
             self._n_extensions_cache[i] = len(self.extensions(a,b,c,d))
         return self._n_extensions_cache[i]
 
+    def _extensions_new(self, int a, int b, int c, int d):
+        r"""
+        Iterate over all possible extensions of the chirotope with `y := ab \cap cd`.
+
+        However, we will only determine those orientations ``(i, j, y)``, where ``i``
+        and ``j`` are in opposite regions. According to Lemma 3.5 and Proposition 3.6
+        this determines all Tverberg partitons of type (3,3,2,2) in y. This might
+        identify two or more extensions.
+
+        Also, we do not check all axioms. So some extensions might not even be valid.
+
+        TODO: Relabel to Lem:OppositeRegions and Prop:OppositeRegions.
+        """
+        # We put each of the remaining 6 points in the correct region induced by ab and cd.
+        # i and j lie in opposite regions, if
+        # ``self.chi[a][b][i] != self.chi[a][b][j]`` and
+        # ``self.chi[c][d][i] != self.chi[c][d][j]``.
+        # Note that the opposite regions are indexed by 0,3 and 1,2.
+        cdef int i, j, r, s, t, u, k, tmp
+        cdef int l, n_oposed, one, two, one_val, two_val, i1, i2, j1, j2
+
+        regions, region_dic, _ = self.regions(a,b,c,d)
+
+        # We iterate over all i, j in opposite regions.
+        # Note that the opposite regions are indexed by ``0, 3`` and ``1, 2``.
+        chi = {}
+        y = ((a, b), (c, d))
+        for r, s in ((0,3),(1,2)):
+            for i in regions[r]:
+                for j in regions[s]:
+                    if self.chi[i][j][a] == self.chi[i][j][b]:
+                        # The line ij doesn't intersect the line ab.
+                        # See Proposition 3.8.
+                        # TODO: Relabel by Prop:NonCrossing.
+                        chi[(i, j, y)] = self.chi[i][j][a]
+                    elif self.chi[i][j][c] == self.chi[i][j][d]:
+                        # The line ij doesn't intersect the line cd.
+                        # See Proposition 3.8.
+                        # TODO: Relabel by Prop:NonCrossing.
+                        chi[(i, j, y)] = self.chi[i][j][c]
+                    else:
+                        # Apply Proposition 3.7 (2).
+                        # TODO: Relabel by Prop:ExtensionObstruction.
+                        t, u = (0, 3) if (r, s) == (1, 2) else (1, 2)
+
+                        tmp = -self.chi[a][b][c] * self.chi[c][d][i] * self.chi[a][b][i]
+                        for k in regions[u]:
+                            # Note that chi[a][b][i] == chi[a][b][k] != chi[a][b][j]
+                            # and that chi[c][d][i] != chi[c][d][k] == chi[c][d][j].
+                            if self.chi[i][j][k] == tmp:
+                                chi[(i, j, y)] = tmp
+                                break
+                        else:
+                            tmp = -self.chi[c][d][c] * self.chi[a][b][i] * self.chi[c][d][i]
+                            for k in regions[t]:
+                                # Note that chi[c][d][i] == chi[c][d][k] != chi[c][d][j]
+                                # and that chi[a][b][i] != chi[a][b][k] == chi[a][b][j].
+                                if self.chi[i][j][k] == tmp:
+                                    chi[(i, j, y)] = tmp
+                                    break
+                            else:
+                                # In any remaining case we have full choice.
+                                chi[(i, j, y)] = 0
+
+        n_opposed = len(chi.keys())
+        opposed = list(chi.keys())
+
+        # For each possibility we write down the implications for each orientation.
+        implications = {i: {1: [], -1: []} for i in range(n_opposed)}
+        for (one, two) in combinations(range(n_opposed), 2):
+            one_val = chi[opposed[one]]
+            i1, j1,_ = opposed[one]
+            two_val = chi[opposed[two]]
+            i2, j2,_ = opposed[two]
+            if chi[(i1, j1, y)] or chi[(i2, j2, y)]:
+                # We skip the trivial cases from above.
+                # So both of them must have a choice.
+                continue
+
+            if i1 != i2 and j1 != j2:
+                # All 4 points i1,i2,j1,j2 are distinct.
+                if region_dic[i1] != region_dic[i2]:
+                    # This case has already been handled above.
+                    continue
+
+                v = self.chi[i1][j1][i2]
+                w = self.chi[i1][j1][j2]
+                if v == w:
+                    # i2,j2 are both on the same side of i1,j1.
+
+                    # i1 and i2 in same region; (j1 and j2 in same region)
+                    # This means that if the intersection point is on the other side of (i1,j1), than the same must hold for (i2,j2).
+                    implications[one][-v].append(two)
+
+                v = self.chi[i2][j2][i1]
+                w = self.chi[i2][j2][j1]
+                if v == w:
+                    # i1,j1 are both on the same side of i2,j2.
+
+                    # i1 and i2 in same region; (j1 and j2 in same region)
+                    # That means that if the intersection point is on the other side of (i2,j2), than the same must hold for (i1,j1).
+                    implications[two][-v].append(one)
+
+            elif i1 != i2:
+                # This means that j1 == j2.
+                v = self.chi[i1][j1][i2]
+                # If the intersection point and i2 are on different sides of i1-j1 this implies that
+                # the orientation i1-j1-intersection is the same as i2-j2-intersection (j1 == j2).
+                implications[one][-v].append(two)
+            else:
+                # This means that i1 == i2.
+                w = self.chi[i1][j1][j2]
+                # If the intersection point and j2 are on different sides of i1-j1 this implies that
+                # the orientation i1-j1-intersection is the same as i2-j2-intersection (i1 == i2).
+                implications[one][-w].append(two)
+
+        for chosen in product([1,-1], repeat=n_opposed):
+            if any(chosen[i] == -chi[(opposed[i])] for i in range(n_opposed)):
+                # There are some intersections, for which we cannot choose.
+                continue
+            for i in range(n_opposed -1):
+                val = chosen[i]
+
+                if not all(chosen[k] == val for k in implications[i][val]):
+                    break
+            else:
+                yield {opposed[k]: chosen[k] for k in range(n_opposed)}
+
     def regions(self, int a, int b, int c, int d):
         r"""
         The 2 lines ab and cd induce 4 regions parametrized by
