@@ -384,139 +384,63 @@ cdef class Chirotope:
         # ``self.chi[a][b][i] != self.chi[a][b][j]`` and
         # ``self.chi[c][d][i] != self.chi[c][d][j]``.
         # Note that the opposite regions are indexed by 0,3 and 1,2.
-        cdef int i,j,x,y,w,v,k,l, n_oposed, one, two, one_val, two_val, i1, i2, j1, j2
+        cdef int i, j, r, s, t, u, k, tmp
+        cdef int l, n_oposed, one, two, one_val, two_val, i1, i2, j1, j2
 
         regions, region_dic, _ = self.regions(a,b,c,d)
 
-        # For each points i,j distinct and distinct from a,b,c,d
-        # the orientation of (i,j,(ab \cap cd)) is clear unless i and j are in opposite regions.
-        # So we iterate over all i,j in opposite regions.
-        dic = {}
-        z = ((a,b), (c,d))
-        for x,y in ((0,3),(1,2)):
-            for i in regions[x]:
-                for j in regions[y]:
-
+        # We iterate over all i, j in opposite regions.
+        # Note that the opposite regions are indexed by ``0, 3`` and ``1, 2``.
+        chi = {}
+        y = ((a, b), (c, d))
+        for r, s in ((0,3),(1,2)):
+            for i in regions[r]:
+                for j in regions[s]:
                     if self.chi[i][j][a] == self.chi[i][j][b]:
-                        # The line i,j doesn't intersect the line a,b.
-                        dic[(i,j,z)] = self.chi[i][j][a]
-                    elif self.chi[i][j][d] == self.chi[i][j][c]:
-                        # The line i,j doesn't intersect the line c,d.
-                        dic[(i,j,z)] = self.chi[i][j][c]
+                        # The line ij doesn't intersect the line ab.
+                        # See Proposition 3.8.
+                        # TODO: Relabel by Prop:NonCrossing.
+                        chi[(i, j, y)] = self.chi[i][j][a]
+                    elif self.chi[i][j][c] == self.chi[i][j][d]:
+                        # The line ij doesn't intersect the line cd.
+                        # See Proposition 3.8.
+                        # TODO: Relabel by Prop:NonCrossing.
+                        chi[(i, j, y)] = self.chi[i][j][c]
                     else:
-                        # The line i,j intersects a,b and c,d.
-                        w,v = (0,3) if (x,y) == (1,2) else (1,2)
+                        # Apply Proposition 3.7 (2).
+                        # TODO: Relabel by Prop:ExtensionObstruction.
+                        t, u = (0, 3) if (r, s) == (1, 2) else (1, 2)
 
-                        # We can choose the orientation of i,j,z iff the points
-                        # in the regions w,v lie on the correct sides.
-
-                        if self.chi[a][b][c] == 1:
-                            # In this case region 1 lies between a and c etc.
-
-                            # Case 1: x == 0, y == 3:
-                            # In this case our situation looks like this:
-                            #
-                            #       c
-                            #    w  |  j
-                            # a-----+----b
-                            #    i  |  v
-                            #       d
-
-                            # This means that i-j-k oriented different than i-j-a for any k in w
-                            # implies that i-j-z is oriented different like i-j-k.
-
-                            # Likewise i-j-l oriented the same as i-j-a for any l in v
-                            # means that i-j-z is oriented just like i-j-a.
-
-                            # Case 2: x == 1, y == 2:
-                            # In this case our situation looks like this:
-                            #
-                            #       c
-                            #    i  |  v
-                            # a-----+----b
-                            #    w  |  j
-                            #       d
-
-                            # This means that i-j-k oriented different than i-j-a for any k in w
-                            # implies that i-j-z is oriented different like i-j-k.
-
-                            # Likewise i-j-l oriented the same as i-j-a for any l in v
-                            # means that i-j-z is oriented just like i-j-a.
-
-                            for k in regions[w]:
-                                if self.chi[i][j][k] != self.chi[i][j][a]:
-                                    # the point k is "in between" the intersection point
-                                    # and i,j
-                                    dic[(i,j,z)] = self.chi[i][j][k]
-                                    break
-                            else:
-                                for l in regions[v]:
-                                    if self.chi[i][j][l] == self.chi[i][j][a]:
-                                        # the point l is "in between" the intersection point
-                                        # and i,j
-                                        dic[(i,j,z)] = self.chi[i][j][l]
-                                        break
+                        tmp = -self.chi[a][b][c] * self.chi[c][d][i] * self.chi[a][b][i]
+                        for k in regions[u]:
+                            # Note that chi[a][b][i] == chi[a][b][k] != chi[a][b][j]
+                            # and that chi[c][d][i] != chi[c][d][k] == chi[c][d][j].
+                            if self.chi[i][j][k] == tmp:
+                                chi[(i, j, y)] = tmp
+                                break
                         else:
-                            # In this case region 2 lies between a and c etc.
-
-                            # Case 1: x == 0, y == 3:
-                            # In this case our situation looks like this:
-                            #
-                            #       d
-                            #    j  |  w
-                            # a-----+----b
-                            #    v  |  i
-                            #       c
-
-                            # This means that i-j-k oriented different than i-j-b for any k in w
-                            # implies that i-j-z is oriented different like i-j-k.
-
-                            # Likewise i-j-l oriented the same as i-j-b for any l in v
-                            # means that i-j-z is oriented just like i-j-b.
-
-                            # Case 2: x == 1, y == 2:
-                            # In this case our situation looks like this:
-                            #
-                            #       d
-                            #    v  |  i
-                            # a-----+----b
-                            #    j  |  w
-                            #       c
-
-                            # This means that i-j-k oriented different than i-j-b for any k in w
-                            # implies that i-j-z is oriented different like i-j-k.
-
-                            # Likewise i-j-l oriented the same as i-j-b for any l in v
-                            # means that i-j-z is oriented just like i-j-ab
-                            for k in regions[w]:
-                                if self.chi[i][j][k] != self.chi[i][j][b]:
-                                    # the point k is "in between" the intersection point
-                                    # and i,j
-                                    dic[(i,j,z)] = self.chi[i][j][k]
+                            tmp = -self.chi[c][d][c] * self.chi[a][b][i] * self.chi[c][d][i]
+                            for k in regions[t]:
+                                # Note that chi[c][d][i] == chi[c][d][k] != chi[c][d][j]
+                                # and that chi[a][b][i] != chi[a][b][k] == chi[a][b][j].
+                                if self.chi[i][j][k] == tmp:
+                                    chi[(i, j, y)] = tmp
                                     break
                             else:
-                                for l in regions[v]:
-                                    if self.chi[i][j][l] == self.chi[i][j][b]:
-                                        # the point l is "in between" the intersection point
-                                        # and i,j
-                                        dic[(i,j,z)] = self.chi[i][j][l]
-                                        break
+                                # In any remaining case we have full choice.
+                                chi[(i, j, y)] = 0
 
-                    if (i,j,z) not in dic:
-                        # In any remaining case we have full choice.
-                        dic[(i,j,z)] = 0
-
-        n_opposed = len(dic.keys())
-        opposed = list(dic.keys())
+        n_opposed = len(chi.keys())
+        opposed = list(chi.keys())
 
         # For each possibility we write down the implications for each orientation.
         implications = {i: {1: [], -1: []} for i in range(n_opposed)}
         for (one, two) in combinations(range(n_opposed), 2):
-            one_val = dic[opposed[one]]
+            one_val = chi[opposed[one]]
             i1, j1,_ = opposed[one]
-            two_val = dic[opposed[two]]
+            two_val = chi[opposed[two]]
             i2, j2,_ = opposed[two]
-            if dic[(i1,j1,z)] or dic[(i2,j2,z)]:
+            if chi[(i1, j1, y)] or chi[(i2, j2, y)]:
                 # We skip the trivial cases from above.
                 # So both of them must have a choice.
                 continue
@@ -527,39 +451,39 @@ cdef class Chirotope:
                     # This case has already been handled above.
                     continue
 
-                x = self.chi[i1][j1][i2]
-                y = self.chi[i1][j1][j2]
-                if x == y:
+                v = self.chi[i1][j1][i2]
+                w = self.chi[i1][j1][j2]
+                if v == w:
                     # i2,j2 are both on the same side of i1,j1.
 
                     # i1 and i2 in same region; (j1 and j2 in same region)
                     # This means that if the intersection point is on the other side of (i1,j1), than the same must hold for (i2,j2).
-                    implications[one][-x].append(two)
+                    implications[one][-v].append(two)
 
-                x = self.chi[i2][j2][i1]
-                y = self.chi[i2][j2][j1]
-                if x == y:
+                v = self.chi[i2][j2][i1]
+                w = self.chi[i2][j2][j1]
+                if v == w:
                     # i1,j1 are both on the same side of i2,j2.
 
                     # i1 and i2 in same region; (j1 and j2 in same region)
                     # That means that if the intersection point is on the other side of (i2,j2), than the same must hold for (i1,j1).
-                    implications[two][-x].append(one)
+                    implications[two][-v].append(one)
 
             elif i1 != i2:
                 # This means that j1 == j2.
-                x = self.chi[i1][j1][i2]
+                v = self.chi[i1][j1][i2]
                 # If the intersection point and i2 are on different sides of i1-j1 this implies that
                 # the orientation i1-j1-intersection is the same as i2-j2-intersection (j1 == j2).
-                implications[one][-x].append(two)
+                implications[one][-v].append(two)
             else:
                 # This means that i1 == i2.
-                y = self.chi[i1][j1][j2]
+                w = self.chi[i1][j1][j2]
                 # If the intersection point and j2 are on different sides of i1-j1 this implies that
                 # the orientation i1-j1-intersection is the same as i2-j2-intersection (i1 == i2).
-                implications[one][-y].append(two)
+                implications[one][-w].append(two)
 
         for chosen in product([1,-1], repeat=n_opposed):
-            if any(chosen[i] == -dic[(opposed[i])] for i in range(n_opposed)):
+            if any(chosen[i] == -chi[(opposed[i])] for i in range(n_opposed)):
                 # There are some intersections, for which we cannot choose.
                 continue
             for i in range(n_opposed -1):
@@ -934,7 +858,7 @@ cdef class Chirotope:
         G = Graph()
         ls = self.valid_intersection_points()
         n = len(ls)
-        for i,j in combinations(range(n), 2):
+        for i, j in combinations(range(n), 2):
             x = ls[i]
             y = ls[j]
             for k,a in enumerate(self.extensions(*x[0], *x[1])):
