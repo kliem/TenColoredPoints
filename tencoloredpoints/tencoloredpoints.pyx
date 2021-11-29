@@ -225,17 +225,17 @@ def combs():
 @cython.final
 cdef class Chirotope:
     r"""
-    An Oriented Matroid with 10 points and methods that help to analyze
+    A Chirotope on 10 points and methods that help to analyze
     the Tverberg situation.
     """
     cdef dict __dict__
     cdef int ***chi
     cdef MemoryAllocator __mem__
     cdef object __valid_intersection_points
-    cdef dict __possibilities_for_intersection
+    cdef dict __extensions
     cdef dict _obtain_dic
-    cdef dict _sections
-    cdef dict _n_poss_cache
+    cdef dict _regions
+    cdef dict _n_extensions_cache
     cdef Bitset_wrapper _partitions_one_bitset
 
     def __init__(self, data):
@@ -243,17 +243,18 @@ cdef class Chirotope:
         Input can be one of the following:
 
         - complete dictionary of all orientations
-        - an index of the OrderType
+        - an index of the OrderType from
+          http://www.ist.tugraz.at/staff/aichholzer/research/rp/triangulations/ordertypes/
         - 120 integers in `\{1,-1\}` for each orientation of the chirotopes in order of
           ``itertools.combinations(range(10), 3)``
         - 10 points in the plane
         """
         self.__mem__ = MemoryAllocator()
         self.__valid_intersection_points = None
-        self.__possibilities_for_intersection = {}
+        self.__extensions = {}
         self._obtain_dic = {}
-        self._sections = {}
-        self._n_poss_cache = {}
+        self._regions = {}
+        self._n_extensions_cache = {}
         self._partitions_one_bitset = None
 
         # Initialize self.chi.
@@ -321,7 +322,7 @@ cdef class Chirotope:
             return self.__valid_intersection_points
         def my_len(i):
             (a,b), (c,d) = i
-            return len(self.possibilities_for_intersection(a,b,c,d))
+            return len(self.extensions(a,b,c,d))
         self.__valid_intersection_points = tuple(sorted(tuple(self._valid_intersection_points()), key=my_len))
         return self.__valid_intersection_points
 
@@ -359,21 +360,24 @@ cdef class Chirotope:
                     if 2 <= counter <= 4 and 2 <= counter2 <= 4:
                         yield (a,b), (c,d)
 
-    def possibilities_for_intersection(self, int a, int b, int c, int d):
-        dic = self.__possibilities_for_intersection
+    def extensions(self, int a, int b, int c, int d):
+        dic = self.__extensions
         if not (a, b, c, d) in dic:
-            dic[a, b, c, d] = tuple(self._possibilities_for_intersection(a,b,c,d))
+            dic[a, b, c, d] = tuple(self._extensions(a, b, c, d))
         return dic[a, b, c, d]
 
-    def _possibilities_for_intersection(self, int a, int b, int c, int d):
+    def _extensions(self, int a, int b, int c, int d):
         r"""
-        Iterate over all possible extensions of the chirotope to `ab \cap cd`.
+        Iterate over all possible extensions of the chirotope with `y := ab \cap cd`.
 
-        However, we will only determine those orientations relevant in determining Tverberg
-        partitions of type 3,3,2,2 involving `ab \cap cd`. This might identify two or more
-        extensions.
+        However, we will only determine those orientations ``(i, j, y)``, where ``i``
+        and ``j`` are in opposite regions. According to Lemma 3.5 and Proposition 3.6
+        this determines all Tverberg partitons of type (3,3,2,2) in y. This might
+        identify two or more extensions.
 
         Also, we do not check all axioms. So some extensions might not even be valid.
+
+        TODO: Relabel to Lem:OppositeRegions and Prop:OppositeRegions.
         """
         # We put each of the remaining 6 points in the correct region induced by ab and cd.
         # i and j lie in opposite regions, if
@@ -382,7 +386,7 @@ cdef class Chirotope:
         # Note that the opposite regions are indexed by 0,3 and 1,2.
         cdef int i,j,x,y,w,v,k,l, n_oposed, one, two, one_val, two_val, i1, i2, j1, j2
 
-        sections, section_dic, _ = self.sections(a,b,c,d)
+        regions, region_dic, _ = self.regions(a,b,c,d)
 
         # For each points i,j distinct and distinct from a,b,c,d
         # the orientation of (i,j,(ab \cap cd)) is clear unless i and j are in opposite regions.
@@ -390,8 +394,8 @@ cdef class Chirotope:
         dic = {}
         z = ((a,b), (c,d))
         for x,y in ((0,3),(1,2)):
-            for i in sections[x]:
-                for j in sections[y]:
+            for i in regions[x]:
+                for j in regions[y]:
 
                     if self.chi[i][j][a] == self.chi[i][j][b]:
                         # The line i,j doesn't intersect the line a,b.
@@ -404,10 +408,10 @@ cdef class Chirotope:
                         w,v = (0,3) if (x,y) == (1,2) else (1,2)
 
                         # We can choose the orientation of i,j,z iff the points
-                        # in the sections w,v lie on the correct sides.
+                        # in the regions w,v lie on the correct sides.
 
                         if self.chi[a][b][c] == 1:
-                            # In this case section 1 lies between a and c etc.
+                            # In this case region 1 lies between a and c etc.
 
                             # Case 1: x == 0, y == 3:
                             # In this case our situation looks like this:
@@ -439,21 +443,21 @@ cdef class Chirotope:
                             # Likewise i-j-l oriented the same as i-j-a for any l in v
                             # means that i-j-z is oriented just like i-j-a.
 
-                            for k in sections[w]:
+                            for k in regions[w]:
                                 if self.chi[i][j][k] != self.chi[i][j][a]:
                                     # the point k is "in between" the intersection point
                                     # and i,j
                                     dic[(i,j,z)] = self.chi[i][j][k]
                                     break
                             else:
-                                for l in sections[v]:
+                                for l in regions[v]:
                                     if self.chi[i][j][l] == self.chi[i][j][a]:
                                         # the point l is "in between" the intersection point
                                         # and i,j
                                         dic[(i,j,z)] = self.chi[i][j][l]
                                         break
                         else:
-                            # In this case section 2 lies between a and c etc.
+                            # In this case region 2 lies between a and c etc.
 
                             # Case 1: x == 0, y == 3:
                             # In this case our situation looks like this:
@@ -484,14 +488,14 @@ cdef class Chirotope:
 
                             # Likewise i-j-l oriented the same as i-j-b for any l in v
                             # means that i-j-z is oriented just like i-j-ab
-                            for k in sections[w]:
+                            for k in regions[w]:
                                 if self.chi[i][j][k] != self.chi[i][j][b]:
                                     # the point k is "in between" the intersection point
                                     # and i,j
                                     dic[(i,j,z)] = self.chi[i][j][k]
                                     break
                             else:
-                                for l in sections[v]:
+                                for l in regions[v]:
                                     if self.chi[i][j][l] == self.chi[i][j][b]:
                                         # the point l is "in between" the intersection point
                                         # and i,j
@@ -519,7 +523,7 @@ cdef class Chirotope:
 
             if i1 != i2 and j1 != j2:
                 # All 4 points i1,i2,j1,j2 are distinct.
-                if section_dic[i1] != section_dic[i2]:
+                if region_dic[i1] != region_dic[i2]:
                     # This case has already been handled above.
                     continue
 
@@ -566,29 +570,29 @@ cdef class Chirotope:
             else:
                 yield {opposed[k]: chosen[k] for k in range(n_opposed)}
 
-    def _n_poss(self, i):
+    def _n_extensions(self, i):
         r"""
         Number of possibilities for intersection number i.
         """
-        if i not in self._n_poss_cache:
+        if i not in self._n_extensions_cache:
             (a,b), (c,d) = self.valid_intersection_points()[i]
-            self._n_poss_cache[i] = len(self.possibilities_for_intersection(a,b,c,d))
-        return self._n_poss_cache[i]
+            self._n_extensions_cache[i] = len(self.extensions(a,b,c,d))
+        return self._n_extensions_cache[i]
 
-    def sections(self, int a, int b, int c, int d):
+    def regions(self, int a, int b, int c, int d):
         r"""
-        The 2 lines ab and cd give 4 quadrants/sections parametrized by
+        The 2 lines ab and cd induce 4 regions parametrized by
         ``(self.chi[a][b][i], self.chi[c][d][i])`` for each ``i`` different from
         ``a, b, c, d``.
 
-        Sort the other points in those sections.
+        Sort the other points in those regions.
 
-        Return the sections, an inverse dictionary and a tuple of the other points
+        Return the regions, an inverse dictionary and a tuple of the other points
         (all points different from ``a, b, c, d``).
         """
-        if (a, b, c, d) not in self._sections:
-            sections = [[], [], [], []]
-            sections_op = {}
+        if (a, b, c, d) not in self._regions:
+            regions = [[], [], [], []]
+            regions_op = {}
             others = tuple(i for i in range(10) if not i in (a,b,c,d))
             for i in others:
                 count = 0
@@ -596,10 +600,10 @@ cdef class Chirotope:
                 count += int(self.chi[a][b][i] == 1)
                 # i belongs to region >= 2 iff c,d,i is oriented counter-clock-wise.
                 count += 2*int(self.chi[c][d][i] == 1)
-                sections[count].append(i)
-                sections_op[i] = count
-            self._sections[a, b, c, d] = (sections, sections_op, others)
-        return self._sections[a, b, c, d]
+                regions[count].append(i)
+                regions_op[i] = count
+            self._regions[a, b, c, d] = (regions, regions_op, others)
+        return self._regions[a, b, c, d]
 
     def obtain_dic(self, int i, int j):
         r"""
@@ -607,7 +611,7 @@ cdef class Chirotope:
         """
         if (i, j) not in self._obtain_dic:
             (a,b), (c,d) = self.valid_intersection_points()[i]
-            dic = self.possibilities_for_intersection(a,b,c,d)[j]
+            dic = self.extensions(a,b,c,d)[j]
             self._obtain_dic[i, j] = (dic, a,b,c,d)
         return self._obtain_dic[i, j]
 
@@ -703,8 +707,8 @@ cdef class Chirotope:
             n = self.n_valid_intersection_points()
             self.__above_below_cache__ = <int****> self.__mem__.allocarray(n, sizeof(int ***))
             for x in range(n):
-                self.__above_below_cache__[x] = <int***> self.__mem__.allocarray(self._n_poss(x), sizeof(int **))
-                for y in range(self._n_poss(x)):
+                self.__above_below_cache__[x] = <int***> self.__mem__.allocarray(self._n_extensions(x), sizeof(int **))
+                for y in range(self._n_extensions(x)):
                     self.__above_below_cache__[x][y] = <int**> self.__mem__.calloc(10, sizeof(int *))
 
         cdef dict dic
@@ -854,7 +858,7 @@ cdef class Chirotope:
         """
         Yield all Tverberg partitions given by a certain dictionary.
         """
-        sections, sections_op, others = self.sections(a,b,c,d)
+        regions, regions_op, others = self.regions(a,b,c,d)
         intersection = ((a,b), (c,d))
         cdef int x,y,w,e,f,g
 
@@ -863,21 +867,21 @@ cdef class Chirotope:
             Check if x,y,z is a triangle containing the intersection of ab and cd.
             """
             for i,j in ((0,3),(1,2)):
-                if (any(w in sections[i] for w in (x,y,z)) and any(w in sections[j] for w in (x,y,z))):
+                if (any(w in regions[i] for w in (x,y,z)) and any(w in regions[j] for w in (x,y,z))):
                     k,l = (0,3) if i == 1 else (1,2)
-                    # Now the opposite sections i,j contain one point of x,y,z.
+                    # Now the opposite regions i,j contain one point of x,y,z.
 
-                    if any(w in sections[k] or w in sections[l] for w in (x,y,z)):
-                        # the vertices are in three sections, so it is all up to one line
-                        v1,v2 = tuple(w for w in (x,y,z) if not (w in sections[k] or w in sections[l]))
+                    if any(w in regions[k] or w in regions[l] for w in (x,y,z)):
+                        # the vertices are in three regions, so it is all up to one line
+                        v1,v2 = tuple(w for w in (x,y,z) if not (w in regions[k] or w in regions[l]))
                         v3 = tuple(w for w in (x,y,z) if not w in (v1,v2))[0]
                         if (v1,v2,intersection) in dic:
                             return dic[(v1,v2,intersection)] == self.chi[v1][v2][v3]
                         return dic[(v2,v1,intersection)] == self.chi[v2][v1][v3]
                     else:
                         # the vertices are only in two sections
-                        one = tuple(w for w in (x,y,z) if w in sections[i])
-                        two = tuple(w for w in (x,y,z) if w in sections[j])
+                        one = tuple(w for w in (x,y,z) if w in regions[i])
+                        two = tuple(w for w in (x,y,z) if w in regions[j])
                         v2,v3 = one if len(one) == 2 else two
                         v1 = one[0] if len(one) == 1 else two[0]
                         if (v1,v3,intersection) in dic:
@@ -933,8 +937,8 @@ cdef class Chirotope:
         for i,j in combinations(range(n), 2):
             x = ls[i]
             y = ls[j]
-            for k,a in enumerate(self.possibilities_for_intersection(*x[0], *x[1])):
-                for l,b in enumerate(self.possibilities_for_intersection(*y[0], *y[1])):
+            for k,a in enumerate(self.extensions(*x[0], *x[1])):
+                for l,b in enumerate(self.extensions(*y[0], *y[1])):
                     if self.check_for_consistency(i,k,j,l):
                         G.add_edge((i,k), (j,l))
 
@@ -986,7 +990,7 @@ def poss_color_finder(Chirotope O):
     cdef int counter = 0
     first_per_part[0] = 0
     for i in range(k-1):
-        counter += O._n_poss(i)
+        counter += O._n_extensions(i)
         first_per_part[i+1] = counter
 
     cdef int num_colors = n_colors()
@@ -1007,7 +1011,7 @@ def poss_color_finder(Chirotope O):
 
     for i in range(k-1):
         offset_i = first_per_part[i]
-        for ind_i in range(O._n_poss(i)):
+        for ind_i in range(O._n_extensions(i)):
             somea = O.rainbow_partitions(i, ind_i)
             ind_color = somea.first(0)
             n_color_bits = somea.n_bits
@@ -1023,10 +1027,10 @@ def poss_color_finder(Chirotope O):
     cdef int ind_j, offset_j
     for i in range(k-1):
         offset_i = first_per_part[i]
-        for ind_i in range(O._n_poss(i)):
+        for ind_i in range(O._n_extensions(i)):
             for j in range(i):
                 offset_j = first_per_part[j]
-                for ind_j in range(O._n_poss(j)):
+                for ind_j in range(O._n_extensions(j)):
                     # There is an arc between those vertices if and only if i,ind_i and j,ind_j are consistent.
                     if O.check_for_consistency(i, ind_i, j, ind_j):
                         incidences[offset_i + ind_i][offset_j+ ind_j] = True
