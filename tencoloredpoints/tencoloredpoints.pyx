@@ -502,7 +502,7 @@ cdef class Chirotope:
             else:
                 yield {opposed[k]: chi[k] for k in range(n_opposed)}
 
-    def n_extensions(self, v):
+    def n_extensions(self, int v):
         r"""
         Number of possibilities for intersection number i.
         """
@@ -551,7 +551,7 @@ cdef class Chirotope:
             self._obtain_extension[v, s] = (chi, a, b, c, d)
         return self._obtain_extension[v, s]
 
-    cpdef inline bint extensions_are_consistent(self, int v, int s, int w, int t):
+    cpdef inline bint extensions_are_consistent(self, int v, int s, int w, int t) except -1:
         r"""
         Check if the ``s``-th choice of the ``v``-th intersection point is consistent
         with the ``t``-th choice of the ``w``-th intersection point.
@@ -576,15 +576,15 @@ cdef class Chirotope:
 
         if (a1 == a2 and b1 == b2) or (a1 == c2 and b1 == d2):
             # (a1, b1) is the common section.
-            above_below1 = self.get_above_below_cached(v, s, a1, b1)
+            above_below1 = self.get_above_below(v, s, a1, b1)
             one = above_below1[55]
-            above_below2 = self.get_above_below_cached(w, t, a1, b1)
+            above_below2 = self.get_above_below(w, t, a1, b1)
             two = above_below2[55]
         elif (c1 == a2 and d1 == b2) or (c1 == c2 and d1 == d2):
             # (c1, d1) is the common section.
-            above_below1 = self.get_above_below_cached(v, s, c1, d1)
+            above_below1 = self.get_above_below(v, s, c1, d1)
             one = above_below1[55]
-            above_below2 = self.get_above_below_cached(w, t, c1, d1)
+            above_below2 = self.get_above_below(w, t, c1, d1)
             two = above_below2[55]
         else:
             # No common section
@@ -610,36 +610,9 @@ cdef class Chirotope:
                     return False
             return True
 
-        return True
-
     cdef int**** __above_below_cache__
 
-    cdef inline int* get_above_below_cached(self, int i, int j, int a, int b):
-        cdef int x,y,z, n
-
-        # Initialize cache
-        if self.__above_below_cache__ is NULL:
-            n = self.n_valid_intersection_points()
-            self.__above_below_cache__ = <int****> self.__mem__.allocarray(n, sizeof(int ***))
-            for x in range(n):
-                self.__above_below_cache__[x] = <int***> self.__mem__.allocarray(self.n_extensions(x), sizeof(int **))
-                for y in range(self.n_extensions(x)):
-                    self.__above_below_cache__[x][y] = <int**> self.__mem__.calloc(10, sizeof(int *))
-
-        cdef dict dic
-        cdef tuple foo
-        if self.__above_below_cache__[i][j][a] is NULL:
-            # Note that ``b`` is determined by a, as the dictionary i,j already inscribes an intersection of two lines.
-            self.__above_below_cache__[i][j][a] = <int*> self.__mem__.allocarray(56, sizeof(int))
-
-            dic = self.obtain_extension(i,j)[0]
-            foo = self.get_above_below(dic, a,b)
-            for x in range(55):
-                self.__above_below_cache__[i][j][a][x] = foo[0][x]
-            self.__above_below_cache__[i][j][a][55] = foo[1]
-        return self.__above_below_cache__[i][j][a]
-
-    cpdef inline tuple get_above_below(self, dict dic, int a, int b):
+    cdef inline int* get_above_below(self, int v, int s, int a, int b) except NULL:
         r"""
         Determine which sections are above the intersection point and which are below.
 
@@ -651,22 +624,46 @@ cdef class Chirotope:
 
         All tuples are sections are given, as (x,y) such that (x,y,a) is oriented counter-clockwise.
         """
+        cdef int x, y, z, n
+
+        # Initialize cache
+        if self.__above_below_cache__ is NULL:
+            n = self.n_valid_intersection_points()
+            self.__above_below_cache__ = <int****> self.__mem__.allocarray(n, sizeof(int ***))
+            for x in range(n):
+                self.__above_below_cache__[x] = <int***> self.__mem__.allocarray(self.n_extensions(x), sizeof(int **))
+                for y in range(self.n_extensions(x)):
+                    self.__above_below_cache__[x][y] = <int**> self.__mem__.calloc(10, sizeof(int *))
+
+        cdef tuple foo
+        if self.__above_below_cache__[v][s][a] is NULL:
+            # Note that ``b`` is determined by ``a``,
+            # ``v`` is the index of the intersection point.
+            self.__above_below_cache__[v][s][a] = <int*> self.__mem__.allocarray(56, sizeof(int))
+
+            foo = self._get_above_below(v, s, a, b)
+            for x in range(55):
+                self.__above_below_cache__[v][s][a][x] = foo[0][x]
+            self.__above_below_cache__[v][s][a][55] = foo[1]
+        return self.__above_below_cache__[v][s][a]
+
+    cpdef inline tuple _get_above_below(self, int v, int s, int a, int b):
+        cdef dict chi
+        chi, a1, b1, c1, d1 = self.obtain_extension(v, s)
+        intersection = ((a1, b1), (c1, d1))
+
         # Let c1,d1 be the other section of the intersection point.
-        for k in dic:
-            (i,j), (k,l) = k[2]
-            break
-        intersection = ((i,j), (k,l))
-        c1,d1 = (i,j) if a == k else (k,l)
+        c1, d1 = intersection[1] if a in intersection[0] else intersection[1]
 
         # Reorient c1,d1 such that c,d,a is counter-clockwise.
         if self.chi[c1][d1][a] == 1:
-            c,d = c1,d1
+            c, d = c1, d1
         else:
-            c,d = d1,c1
+            c, d = d1, c1
 
         above_below = [0]*55
 
-        for index,(i1,j1) in enumerate(combinations(range(10),2)):
+        for index, (i1,j1) in enumerate(combinations(range(10),2)):
             if i1 in (a,b) or j1 in (a,b):
                 continue
             if (i1,j1) == (c1,d1):
@@ -688,14 +685,14 @@ cdef class Chirotope:
             # If the location of i-j is up to a choice,
             # we look it up in the dictionary.
             # Note that ``a`` is defined to be on top and that i,j,a is counter-clockwise.
-            if (i,j,intersection) in dic:
-                val = dic[(i,j,intersection)]
+            if (i,j,intersection) in chi:
+                val = chi[(i,j,intersection)]
                 if val == 1:
                     above_below[index] = -1
                 else:
                     above_below[index] = 1
-            elif (j,i,intersection) in dic:
-                val = -dic[(j,i,intersection)]
+            elif (j,i,intersection) in chi:
+                val = -chi[(j,i,intersection)]
                 if val == 1:
                     above_below[index] = -1
                 else:
