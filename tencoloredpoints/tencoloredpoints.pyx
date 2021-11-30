@@ -238,7 +238,7 @@ cdef class Chirotope:
     cdef dict _n_extensions_cache
     cdef Bitset_wrapper _partitions_one_bitset
 
-    def __init__(self, data):
+    def __init__(self, data, new_try=False):
         r"""
         Input can be one of the following:
 
@@ -590,25 +590,40 @@ cdef class Chirotope:
             # No common section
             return True
 
-        if above_below2[one] == 1:
-            # one lies above two
-            if above_below1[two] == 1:
+        # In the following comments we will assume that we have reordered
+        # the tuples (c1, d1), (c2, d2), (i, j)
+        # such that
+        # chi(a, b, c1) == chi(a, b, c2) == chi(a, b, i) == 1
+        # and chi(a, b, d1) == chi(a, b, d2) == chi(a, b, j) == -1.
+
+        # This is what ``get_above_below`` has done.
+        # Given the index of ``i, j`` it returns 0 or reorders i and j
+        # and then returns chi(i, j, y).
+
+        if above_below1[two] == 0 or above_below2[one] == 0:
+            # Never happens.
+            # We have always set above_below according to
+            # chi(c1, d1, y2) and chi(c2, d1, y1).
+
+            # We raise an error, however for optimization reasons, we to it by returning -1.
+            # This will raise a SystemError without error message, which is fine for this purpose.
+            return -1
+
+        if above_below1[two] == above_below2[one]:
+            # Special case of Proposition 3.10:
+            # chi(c1, d1, y2) != chi(c2, d2, y1)
+            # TODO: Relabel by Prop:Edges.
+            return False
+
+        for index in range(55):
+            if -above_below1[index] == above_below1[two] == above_below2[index]:
+                # With chi(c2, d2, y1) != 0 the following is a contradiction:
+                # -chi(i, j, y1) == chi(c2, d2, y1) == chi(i, j, y2).
+                # by Proposition 3.10.
+                # TODO: Relabel by Prop:edges
                 return False
-            #assert two in below1
-            # The situation is not consistent, if there is anything above ``one`` that is below ``two``
-            for index in range(55):
-                if above_below1[index] == 1 and above_below2[index] == -1:
-                    return False
-            return True
-        else:
-            # one lies below two
-            if above_below1[two] == -1:
-                return False
-            # The situation is not consistent, if there is anything below ``one`` that is above ``two``
-            for index in range(55):
-                if above_below1[index] == -1 and above_below2[index] == 1:
-                    return False
-            return True
+
+        return True
 
     cdef int**** __above_below_cache__
 
@@ -616,13 +631,15 @@ cdef class Chirotope:
         r"""
         Determine which sections are above the intersection point and which are below.
 
-        Return a triple ``above``, ``below``, ``(c,d)``.
+        Consider the ``s``-th choice ``chi`` of the ``v``-th intersection point y of ab and cd.
 
-        ``dic is a dictionary`` containing the placement of a intersection point of ``(a,b)``.
+        For each ``index, (i,j) in enumerate(combinations(range(10), 2))`` with chi[a][b][i] != chi[a][b][j], we
+        orient it such that chi[a][b][i] == 1.
 
-        We define ``a`` to be on top.
+        The output is of type ``int[56]``.
+        ``output[index] == chi(i, j, y)`` or ``output[index] == 0``.
 
-        All tuples are sections are given, as (x,y) such that (x,y,a) is oriented counter-clockwise.
+        Further ``output[55]`` is the index of the tuple ``(c, d)``.
         """
         cdef int x, y, z, n
 
@@ -649,17 +666,17 @@ cdef class Chirotope:
 
     cpdef inline tuple _get_above_below(self, int v, int s, int a, int b):
         cdef dict chi
-        cdef int c, d, a1, b1, c1, d1, i, j, i1, j1
+        cdef int c, d, a1, b1, c1, d1, i, j, i1, j1, val
         chi, a1, b1, c1, d1 = self.obtain_extension(v, s)
-        intersection = ((a1, b1), (c1, d1))
+        y = ((a1, b1), (c1, d1))
 
         # Let c1,d1 be the other section of the intersection point.
         if a == c1:
             c1 = a1
             d1 = b1
 
-        # Reorient c1,d1 such that c,d,a is counter-clockwise.
-        if self.chi[c1][d1][a] == 1:
+        # Reorient c1, d1 such that chi[a][b][c] == 1.
+        if self.chi[a][b][c1] == 1:
             c, d = c1, d1
         else:
             c, d = d1, c1
@@ -667,62 +684,51 @@ cdef class Chirotope:
         above_below = [0]*55
 
         for index, (i1,j1) in enumerate(combinations(range(10),2)):
-            if i1 in (a,b) or j1 in (a,b):
+            if i1 in (a, b) or j1 in (a, b):
                 continue
-            if (i1,j1) == (c1,d1):
-                # This is the section defining the intersection.
-                index_cd = index
-                continue
-            if self.chi[a][b][i1] == self.chi[a][b][j1] or self.chi[i1][j1][a] == self.chi[i1][j1][b]:
+            elif self.chi[a][b][i1] == self.chi[a][b][j1] or self.chi[i1][j1][a] == self.chi[i1][j1][b]:
                 # The lines don't even intersect.
                 continue
 
-            # Orient i,j,a counter-clock-wise.
-            if self.chi[i1][j1][a] == -1:
-                j = i1
-                i = j1
-            else:
+            # Reorder i1, j1 to i, j such that chi[a][b][i] == 1.
+            if self.chi[a][b][i1] == 1:
                 i = i1
                 j = j1
-
-            # If the location of i-j is up to a choice,
-            # we look it up in the dictionary.
-            # Note that ``a`` is defined to be on top and that i,j,a is counter-clockwise.
-            if (i,j,intersection) in chi:
-                val = chi[(i,j,intersection)]
-                if val == 1:
-                    above_below[index] = -1
-                else:
-                    above_below[index] = 1
-            elif (j,i,intersection) in chi:
-                val = -chi[(j,i,intersection)]
-                if val == 1:
-                    above_below[index] = -1
-                else:
-                    above_below[index] = 1
-
-            elif i in (c,d):
-                if self.chi[c][d][j] == 1:
-                    # j lies above c,d, (i is c or d) therefore
-                    # i-j intersects a,b, above c,d.
-                    above_below[index] = 1
-                else:
-                    above_below[index] = -1
-            elif j in (c,d):
-                if self.chi[c][d][i] == 1:
-                    # As above.
-                    above_below[index] = 1
-                else:
-                    above_below[index] = -1
             else:
-                # In all remaining cases i,j must both lie above or both below c,d,
-                # otherwise the location of the section i,j with respect to the intersection point (a,b,c,d)
-                # would be up to a choice and would therefore be needed to be in the dictionary.
-                assert self.chi[c][d][i] == self.chi[c][d][j]
-                if self.chi[c][d][i] == 1:
-                    above_below[index] = 1
-                else:
-                    above_below[index] = -1
+                i = j1
+                j = i1
+
+            # We set above_below to non-zero for some value.
+            # above_below[index] = chi(i, j, intersection)
+
+            if (i, j, y) in chi:
+                above_below[index] = chi[(i, j, y)]
+            elif (j, i, y) in chi:
+                above_below[index] = -chi[(j, i, y)]
+            elif i == c and j == d:
+                index_cd = index
+                continue
+            elif i == c:
+                # Note that i != d as chi[a][b][i] != chi[a][b][d].
+                # Apply Lemma 3.2:
+                # chi(i, j, y) = chi(c, j, y) = chi(c, j, d)
+                # TODO: Relabel by Lem:PointInSegment
+                above_below[index] = self.chi[c][j][d]
+            elif j == d:
+                # Note that j != c.
+                # Apply Lemma 3.2:
+                # chi(i, j, y) = chi(i, d, y) = chi(i, d, c)
+                # TODO: Relabel by Lem:PointInSegment
+                above_below[index] = self.chi[i][d][c]
+            else:
+                # i and j are in neighboring regions.
+                # Apply Lemma 3.3
+                # chi(a, b, i) != chi(a, b, j) and chi(c, d, i) == chi(c, d, j)
+                # implies
+                # chi(i, j, y) == -chi(c, d, a) * chi(a, b, j) * chi(c, d, i)
+                # TODO: Relabel by Lem:SameSide
+                above_below[index] = -self.chi[c][d][a] * self.chi[a][b][j] * self.chi[c][d][i]
+
         return tuple(above_below), index_cd
 
     cdef Bitset_wrapper partitions_one_bitset(self):
