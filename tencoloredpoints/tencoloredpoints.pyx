@@ -233,7 +233,7 @@ cdef class Chirotope:
     cdef MemoryAllocator __mem__
     cdef object __valid_intersection_points
     cdef dict __extensions
-    cdef dict _obtain_dic
+    cdef dict _obtain_extension
     cdef dict _regions
     cdef dict _n_extensions_cache
     cdef Bitset_wrapper _partitions_one_bitset
@@ -252,7 +252,7 @@ cdef class Chirotope:
         self.__mem__ = MemoryAllocator()
         self.__valid_intersection_points = None
         self.__extensions = {}
-        self._obtain_dic = {}
+        self._obtain_extension = {}
         self._regions = {}
         self._n_extensions_cache = {}
         self._partitions_one_bitset = None
@@ -502,14 +502,14 @@ cdef class Chirotope:
             else:
                 yield {opposed[k]: chi[k] for k in range(n_opposed)}
 
-    def _n_extensions(self, i):
+    def n_extensions(self, v):
         r"""
         Number of possibilities for intersection number i.
         """
-        if i not in self._n_extensions_cache:
-            (a,b), (c,d) = self.valid_intersection_points()[i]
-            self._n_extensions_cache[i] = len(self.extensions(a,b,c,d))
-        return self._n_extensions_cache[i]
+        if v not in self._n_extensions_cache:
+            (a, b), (c, d) = self.valid_intersection_points()[v]
+            self._n_extensions_cache[v] = len(self.extensions(a, b, c, d))
+        return self._n_extensions_cache[v]
 
     def regions(self, int a, int b, int c, int d):
         r"""
@@ -521,6 +521,12 @@ cdef class Chirotope:
 
         Return the regions, an inverse dictionary and a tuple of the other points
         (all points different from ``a, b, c, d``).
+
+        .. NOTE::
+
+          The parity of the region index is the side of ab.
+          The index being < 2 or >= 2 is the side of cd.
+          In particular the opposite regions are (0, 3) and (1, 2).
         """
         if (a, b, c, d) not in self._regions:
             regions = [[], [], [], []]
@@ -528,84 +534,61 @@ cdef class Chirotope:
             others = tuple(i for i in range(10) if not i in (a,b,c,d))
             for i in others:
                 count = 0
-                # i belongs to an odd region iff a,b,i is oriented counter-clock-wise.
                 count += int(self.chi[a][b][i] == 1)
-                # i belongs to region >= 2 iff c,d,i is oriented counter-clock-wise.
                 count += 2*int(self.chi[c][d][i] == 1)
                 regions[count].append(i)
                 regions_op[i] = count
             self._regions[a, b, c, d] = (regions, regions_op, others)
         return self._regions[a, b, c, d]
 
-    def obtain_dic(self, int i, int j):
+    def obtain_extension(self, int v, int s):
         r"""
-        Obtain the j-th possibility for the i-th intersection point.
+        Obtain the s-th extension for the v-th valid intersection point.
         """
-        if (i, j) not in self._obtain_dic:
-            (a,b), (c,d) = self.valid_intersection_points()[i]
-            dic = self.extensions(a,b,c,d)[j]
-            self._obtain_dic[i, j] = (dic, a,b,c,d)
-        return self._obtain_dic[i, j]
+        if (v, s) not in self._obtain_extension:
+            (a, b), (c, d) = self.valid_intersection_points()[v]
+            chi = self.extensions(a, b, c, d)[s]
+            self._obtain_extension[v, s] = (chi, a, b, c, d)
+        return self._obtain_extension[v, s]
 
-    cpdef inline bint check_for_consistency(self, int i, int j, int k, int l):
+    cpdef inline bint extensions_are_consistent(self, int v, int s, int w, int t):
         r"""
-        Check if the two choices for intersection points are consistent.
+        Check if the ``s``-th choice of the ``v``-th intersection point is consistent
+        with the ``t``-th choice of the ``w``-th intersection point.
 
-        If they are intersection points on the same section, they both define
-        what is above and below this intersection point.
-        Possibly those definitions are not consistent.
+        They are not consistent, if they contradict Proposition 3.10.
+        Otherwise we will assume them to be consistent.
+        So we might return false positives, but not false negatives.
 
-        Otherwise, we say that the are consistent.
+        TODO: Relabel by Prop:Edges.
         """
-        cdef int a, b, c, d, a1, b1, c1, d1, n
+        cdef int a1, b1, c1, d1, a2, b2, c2, d2, n
 
-        cdef dict dic1, dic2
+        cdef dict chi1, chi2
 
-        dic1, a,b,c,d = self.obtain_dic(i,j)
-        dic2, a1,b1,c1,d1 = self.obtain_dic(k,l)
-        if a == -1:
-            intersections2 = []
-            for dic in (dic1, dic2):
-                for w in dic:
-                    intersections2.append(w[2])
-                    break
-            intersections = tuple(intersections2)
-            ((a,b), (c,d)), ((a1,b1), (c1,d1)) = intersections
+        chi1, a1, b1, c1, d1 = self.obtain_extension(v, s)
+        chi2, a2, b2, c2, d2 = self.obtain_extension(w, t)
 
         cdef int* above_below1
         cdef int* above_below2
         cdef int one, two
         cdef int index
 
-        if (a == a1 and b == b1) or (a == c1 and b == d1):
-            # (a,b) is the common section.
-            if i >= 0:
-                above_below1 = self.get_above_below_cached(i, j, a, b)
-                one = above_below1[55]
-                above_below2 = self.get_above_below_cached(k, l, a, b)
-                two = above_below2[55]
-            else:
-                above_below1x, one = self.get_above_below(dic1, a, b)
-                above_below2x, two = self.get_above_below(dic2, a, b)
-                # TODO initialize as int*
-                assert above_below1 is not NULL
-
-        elif (c == a1 and d == b1) or (c == c1 and d == d1):
-            # (c,d) is the common section.
-            if i >= 0:
-                above_below1 = self.get_above_below_cached(i, j, c, d)
-                one = above_below1[55]
-                above_below2 = self.get_above_below_cached(k, l, c, d)
-                two = above_below2[55]
-            else:
-                above_below1x, one = self.get_above_below(dic1, c, d)
-                above_below2x, two = self.get_above_below(dic2, c, d)
-                # TODO initialize as int*
-                assert above_below1 is not NULL
+        if (a1 == a2 and b1 == b2) or (a1 == c2 and b1 == d2):
+            # (a1, b1) is the common section.
+            above_below1 = self.get_above_below_cached(v, s, a1, b1)
+            one = above_below1[55]
+            above_below2 = self.get_above_below_cached(w, t, a1, b1)
+            two = above_below2[55]
+        elif (c1 == a2 and d1 == b2) or (c1 == c2 and d1 == d2):
+            # (c1, d1) is the common section.
+            above_below1 = self.get_above_below_cached(v, s, c1, d1)
+            one = above_below1[55]
+            above_below2 = self.get_above_below_cached(w, t, c1, d1)
+            two = above_below2[55]
         else:
             # No common section
             return True
-
 
         if above_below2[one] == 1:
             # one lies above two
@@ -639,8 +622,8 @@ cdef class Chirotope:
             n = self.n_valid_intersection_points()
             self.__above_below_cache__ = <int****> self.__mem__.allocarray(n, sizeof(int ***))
             for x in range(n):
-                self.__above_below_cache__[x] = <int***> self.__mem__.allocarray(self._n_extensions(x), sizeof(int **))
-                for y in range(self._n_extensions(x)):
+                self.__above_below_cache__[x] = <int***> self.__mem__.allocarray(self.n_extensions(x), sizeof(int **))
+                for y in range(self.n_extensions(x)):
                     self.__above_below_cache__[x][y] = <int**> self.__mem__.calloc(10, sizeof(int *))
 
         cdef dict dic
@@ -649,7 +632,7 @@ cdef class Chirotope:
             # Note that ``b`` is determined by a, as the dictionary i,j already inscribes an intersection of two lines.
             self.__above_below_cache__[i][j][a] = <int*> self.__mem__.allocarray(56, sizeof(int))
 
-            dic = self.obtain_dic(i,j)[0]
+            dic = self.obtain_extension(i,j)[0]
             foo = self.get_above_below(dic, a,b)
             for x in range(55):
                 self.__above_below_cache__[i][j][a][x] = foo[0][x]
@@ -834,9 +817,9 @@ cdef class Chirotope:
                 if is_triangle(e,f,g):
                     yield ((a,b), (c,d), (x,y,z), (e,f,g))
 
-    cdef Bitset_wrapper rainbow_partitions(self, int y, int z):
+    cdef Bitset_wrapper rainbow_partitions(self, int v, int s):
         r"""
-        Return a bitset for the ``z``-th choice for the intersection point ``y`.
+        Return a bitset for the ``s``-th choice for ``v``-th intersection point ``y``.
 
         The bitset indicates which color partition
         does not have a rainbow Tverberg partition
@@ -847,7 +830,7 @@ cdef class Chirotope:
         """
         cdef dict chi
         cdef int a, b, c, d
-        chi, a, b, c, d = self.obtain_dic(y, z)
+        chi, a, b, c, d = self.obtain_extension(v, s)
         cdef Bitset_wrapper foo = self.partitions_one_bitset().copy()
 
         for part in self.partitions_two(chi, a, b, c, d):
@@ -865,27 +848,27 @@ cdef class Chirotope:
         from sage.graphs.graph import Graph
         G = Graph()
         ls = self.valid_intersection_points()
-        n = len(ls)
-        for i,j in combinations(range(n), 2):
-            x = ls[i]
-            y = ls[j]
-            for k,a in enumerate(self.extensions(*x[0], *x[1])):
-                for l,b in enumerate(self.extensions(*y[0], *y[1])):
-                    if self.check_for_consistency(i,k,j,l):
-                        G.add_edge((i,k), (j,l))
+        k = len(ls) + 1
+        for v, w in combinations(range(k - 1), 2):
+            for s in range(self.n_extensions(v)):
+                for t in range(self.n_extensions(w)):
+                    if self.extensions_are_consistent(v, s, w, t):
+                        G.add_edge((v, s), (w, t))
 
         # So far we have added all the vertices corresponding to valid intersection points
         # and orientations.
         # For each such vertex, we add an edge to those color partions, for which it does
         # not induce a rainbow partition.
-        V = G.vertices()
         cdef int num_colors = n_colors()
-        for v in V:
-            rainbows = self.rainbow_partitions(v[0], v[1])
-            l = rainbows.first(0)
-            while l < num_colors:
-                G.add_edge(v, (n, l))
-                l = rainbows.first(l+1)
+        cdef int col_ind
+        for v in range(k - 1):
+            for s in range(self.n_extensions(v)):
+                rainbows = self.rainbow_partitions(v, s)
+
+                col_ind = rainbows.first(0)
+                while col_ind < num_colors:
+                    G.add_edge((v, s), (k - 1, col_ind))
+                    col_ind = rainbows.first(col_ind + 1)
         return G
 
 
@@ -922,7 +905,7 @@ def poss_color_finder(Chirotope O):
     cdef int counter = 0
     first_per_part[0] = 0
     for i in range(k-1):
-        counter += O._n_extensions(i)
+        counter += O.n_extensions(i)
         first_per_part[i+1] = counter
 
     cdef int num_colors = n_colors()
@@ -943,7 +926,7 @@ def poss_color_finder(Chirotope O):
 
     for i in range(k-1):
         offset_i = first_per_part[i]
-        for ind_i in range(O._n_extensions(i)):
+        for ind_i in range(O.n_extensions(i)):
             somea = O.rainbow_partitions(i, ind_i)
             ind_color = somea.first(0)
             n_color_bits = somea.n_bits
@@ -959,12 +942,12 @@ def poss_color_finder(Chirotope O):
     cdef int ind_j, offset_j
     for i in range(k-1):
         offset_i = first_per_part[i]
-        for ind_i in range(O._n_extensions(i)):
+        for ind_i in range(O.n_extensions(i)):
             for j in range(i):
                 offset_j = first_per_part[j]
-                for ind_j in range(O._n_extensions(j)):
+                for ind_j in range(O.n_extensions(j)):
                     # There is an arc between those vertices if and only if i,ind_i and j,ind_j are consistent.
-                    if O.check_for_consistency(i, ind_i, j, ind_j):
+                    if O.extensions_are_consistent(i, ind_i, j, ind_j):
                         incidences[offset_i + ind_i][offset_j+ ind_j] = True
                         incidences[offset_j + ind_j][offset_i+ ind_i] = True
 
