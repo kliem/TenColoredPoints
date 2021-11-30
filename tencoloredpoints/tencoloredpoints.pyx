@@ -649,11 +649,14 @@ cdef class Chirotope:
 
     cpdef inline tuple _get_above_below(self, int v, int s, int a, int b):
         cdef dict chi
+        cdef int c, d, a1, b1, c1, d1, i, j, i1, j1
         chi, a1, b1, c1, d1 = self.obtain_extension(v, s)
         intersection = ((a1, b1), (c1, d1))
 
         # Let c1,d1 be the other section of the intersection point.
-        c1, d1 = intersection[1] if a in intersection[0] else intersection[1]
+        if a == c1:
+            c1 = a1
+            d1 = b1
 
         # Reorient c1,d1 such that c,d,a is counter-clockwise.
         if self.chi[c1][d1][a] == 1:
