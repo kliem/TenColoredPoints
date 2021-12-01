@@ -888,27 +888,19 @@ cdef class Chirotope:
 
 def poss_color_finder(Chirotope O):
     r"""
-    Determine all colors for which this Chirotope has a solution:
+    Given an acyclic chirotope on 10 points of rank 3.
 
-    There exists some setup with the intersections so that the colors don't have a Tverberg Partition.
+    We construct a k-partite graph according to
 
-    This is done by finding a k-clique in a k-partite graph.
+    - Kliem, Jonathan: A new k-partite graph k-clique iterator and the optimal colored Tverberg problem for ten colored points. Preprint (2021).
 
-    The last part contains one node for each color.
+    This graph H is obtained from a graph G by adding vertices, adding edges and vertex identification of pairwise non-adjacent vertices.
+    By Lemma 3.1 H must have a k-clique, if G has a k-clique.
+    We check H to verify that G has not a k-clique.
 
-    All the other parts represent an intersection point each.
-    The oriented matroid does not decode where this intersection point lies with respect to other lines (between two points each).
-    However, there is only a finite number of possibilities to place such an intersection point.
+    Doing this for all acyclic chirotope on 10 points of rank 3, we verify Proposition 2.14.
 
-    An edge is placed wherever such a choice can be made consistenly.
-    (Or rather no edge is place, if there is a contradiction.)
-    Further each choice is connected to all colors, for which it does not yield a colorful Tverberg partition.
-
-    A maximal clique in this graph would correspond to a consistent choice, for which there is no colorful Tverberg partition.
-    If those choices could be realized, then this would give a counter example.
-
-    However, at least for 10 points we can show that there never exists such a maximal clique, which means
-    that already on the level of oriented matroids we can show that there exists always at least on colorful Tverberg partition.
+    TODO: Relabel by Prop:KClique and Lem:EnlargedGraph.
     """
     cdef MemoryAllocator mem = MemoryAllocator()
     cdef Bitset_wrapper somea  # type awareness of cython
@@ -1038,4 +1030,4 @@ def _check_all_colors(start, end, iterator):
             _ = poss_color_finder(O)
         except ValueError:
             # There appears to be a counter example.
-            raise ValueError("found counter example at index {}".format(i))
+            raise ValueError("found possible counter example at index {}".format(i))
