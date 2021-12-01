@@ -531,7 +531,7 @@ cdef class Chirotope:
         if (a, b, c, d) not in self._regions:
             regions = [[], [], [], []]
             regions_op = {}
-            others = tuple(i for i in range(10) if not i in (a,b,c,d))
+            others = tuple(i for i in range(10) if i not in (a, b, c, d))
             for i in others:
                 count = 0
                 count += int(self.chi[a][b][i] == 1)
@@ -775,53 +775,61 @@ cdef class Chirotope:
                             if self.chi[g][h][x] == self.chi[h][i][x] == self.chi[i][g][x]:
                                 yield ((x,), (a,b,c), (d,e,f), (g,h,i))
 
-    def partitions_two(self, dict dic, int a, int b, int c, int d):
+    def partitions_two(self, dict chi, int a, int b, int c, int d):
         """
         Yield all Tverberg partitions given by a certain dictionary.
         """
-        regions, regions_op, others = self.regions(a,b,c,d)
-        intersection = ((a,b), (c,d))
-        cdef int x,y,w,e,f,g
+        others = tuple(i for i in range(10) if i not in (a, b, c, d))
+        cdef int e1, f1, g1, e2, f2, g2
 
-        def is_triangle(x,y,z):
-            """
-            Check if x,y,z is a triangle containing the intersection of ab and cd.
-            """
-            for i,j in ((0,3),(1,2)):
-                if (any(w in regions[i] for w in (x,y,z)) and any(w in regions[j] for w in (x,y,z))):
-                    k,l = (0,3) if i == 1 else (1,2)
-                    # Now the opposite regions i,j contain one point of x,y,z.
+        e1 = others[0]
+        for f1, g1 in combinations(others[1:], 2):
+            if self.triangle_contains_intersection_point(chi, a, b, c, d, e1, f1, g1):
+                e2, f2, g2 = tuple(i for i in others if i not in (e1, f1, g1))
+                if self.triangle_contains_intersection_point(chi, a, b, c, d, e2, f2, g2):
+                    yield ((a, b), (c, d), (e1, f1, g1), (e2, f2, g2))
 
-                    if any(w in regions[k] or w in regions[l] for w in (x,y,z)):
-                        # the vertices are in three regions, so it is all up to one line
-                        v1,v2 = tuple(w for w in (x,y,z) if not (w in regions[k] or w in regions[l]))
-                        v3 = tuple(w for w in (x,y,z) if not w in (v1,v2))[0]
-                        if (v1,v2,intersection) in dic:
-                            return dic[(v1,v2,intersection)] == self.chi[v1][v2][v3]
-                        return dic[(v2,v1,intersection)] == self.chi[v2][v1][v3]
+    cdef bint triangle_contains_intersection_point(self, dict chi, int a, int b, int c, int d, int e, int f, int g) except -1:
+        """
+        Check if the triangle e, f, g contains the intersection of ab and cd,
+        when extension self.chi by chi (which assigns values for points in opposite regions and
+        the intersection of ab and cd.
+        """
+        cdef int i, j, k
+        cdef int val1, val2
+        y = ((a, b), (c, d))
+        for i, j, k in permutations((e, f, g)):
+            if self.chi[c][d][i] != self.chi[c][d][j] == self.chi[c][d][k]:
+                if self.chi[a][b][i] != self.chi[a][b][j] == self.chi[a][b][k]:
+                    # Proposition 3.6 (1)
+                    if (i, j, y) in chi:
+                        val1 = chi[(i, j, y)]
                     else:
-                        # the vertices are only in two sections
-                        one = tuple(w for w in (x,y,z) if w in regions[i])
-                        two = tuple(w for w in (x,y,z) if w in regions[j])
-                        v2,v3 = one if len(one) == 2 else two
-                        v1 = one[0] if len(one) == 1 else two[0]
-                        if (v1,v3,intersection) in dic:
-                            val = dic[(v1,v3,intersection)]
-                        else:
-                            val = -dic[(v3,v1,intersection)]
-                        if (v1,v2,intersection) in dic:
-                            val2 = dic[(v1,v2,intersection)]
-                        else:
-                            val2 = -dic[(v2,v1,intersection)]
-                        return val != val2
-            return False
+                        val1 = -chi[(j, i, y)]
+                    if (i, k, y) in chi:
+                        val2 = chi[(i, k, y)]
+                    else:
+                        val2 = -chi[(k, i, y)]
 
-        x = others[0]
-        for y,z in combinations(others[1:],2):
-            if is_triangle(x,y,z):
-                e,f,g = tuple(i for i in range(10) if not i in (a,b,c,d,x,y,z))
-                if is_triangle(e,f,g):
-                    yield ((a,b), (c,d), (x,y,z), (e,f,g))
+                    return val1 != val2
+
+                elif self.chi[a][b][i] == self.chi[a][b][k] != self.chi[a][b][j]:
+                    # Proposition 3.6 (2)
+                    if (i, j, y) in chi:
+                        val1 = chi[(i, j, y)]
+                    else:
+                        val1 = -chi[(j, i, y)]
+
+                    return val1 == -self.chi[a][b][c] * self.chi[c][d][i] * self.chi[a][b][i]
+
+        # If i, j, k can not be relabeld as above, then
+        # none of e, f, g, are in opposite regions and by
+        # Lemma 3.5, y is not in the convex hull of e, f, g.
+
+        # TODO: Relabel to Lem:OppositeRegions and Prop:OppositeRegions.
+
+        return False
+
 
     cdef Bitset_wrapper rainbow_partitions(self, int v, int s):
         r"""
