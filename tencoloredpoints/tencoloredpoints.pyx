@@ -830,7 +830,6 @@ cdef class Chirotope:
 
         return False
 
-
     cdef Bitset_wrapper rainbow_partitions(self, int v, int s):
         r"""
         Return a bitset for the ``s``-th choice for ``v``-th intersection point ``y``.
@@ -903,59 +902,53 @@ def poss_color_finder(Chirotope O):
     TODO: Relabel by Prop:KClique and Lem:EnlargedGraph.
     """
     cdef MemoryAllocator mem = MemoryAllocator()
-    cdef Bitset_wrapper somea  # type awareness of cython
-    cdef int i, j
+    cdef int v, w, s, t, offset_v, offset_w
 
+    # Prepare first_per_part and determine the number of vertices.
     cdef int k = O.n_valid_intersection_points() + 1
     cdef int* first_per_part = <int*> mem.allocarray(k, sizeof(int))
     cdef int counter = 0
     first_per_part[0] = 0
-    for i in range(k-1):
-        counter += O.n_extensions(i)
-        first_per_part[i+1] = counter
+    for v in range(k-1):
+        counter += O.n_extensions(v)
+        first_per_part[v + 1] = counter
 
     cdef int num_colors = n_colors()
-
     cdef int n = counter + num_colors
 
+    # Prepare incidences.
     cdef bool ** incidences = <bool **> mem.allocarray(n, sizeof(bool *))
     for i in range(n):
         incidences[i] = <bool *> mem.calloc(n, sizeof(bool))
 
-    # Obstructions
-    # Obtain for each possible constellation the colors for which there is no Tverberg Partition.
-
     cdef int offset_colors = first_per_part[k-1]
-    cdef int offset_i, ind_i
-    cdef long ind_color
-    cdef int n_color_bits
+    cdef int col_ind
+    cdef Bitset_wrapper rainbows
 
-    for i in range(k-1):
-        offset_i = first_per_part[i]
-        for ind_i in range(O.n_extensions(i)):
-            somea = O.rainbow_partitions(i, ind_i)
-            ind_color = somea.first(0)
-            n_color_bits = somea.n_bits
-            while ind_color < n_color_bits:
-                incidences[offset_i + ind_i][offset_colors + ind_color] = True
-                incidences[offset_colors + ind_color][offset_i + ind_i] = True
-                ind_color = somea.first(ind_color + 1)
+    # We add an arc between v, s and a color partition, if for this color partition
+    # there exists no rainbow Tverberg partition of type 3,3,3,1 or of type 3,3,2,2
+    # in the intersection point corresponding to v.
+    for v in range(k-1):
+        offset_v = first_per_part[v]
+        for s in range(O.n_extensions(v)):
+            rainbows = O.rainbow_partitions(v, s)
+            col_ind = rainbows.first(0)
+            while col_ind < num_colors:
+                incidences[offset_v + s][offset_colors + col_ind] = True
+                incidences[offset_colors + col_ind][offset_v + s] = True
+                col_ind = rainbows.first(col_ind + 1)
 
-    cdef int l
-
-    # All connections
-    # For each constellation we store, which other constellations are still possible, if this is picked.
-    cdef int ind_j, offset_j
-    for i in range(k-1):
-        offset_i = first_per_part[i]
-        for ind_i in range(O.n_extensions(i)):
-            for j in range(i):
-                offset_j = first_per_part[j]
-                for ind_j in range(O.n_extensions(j)):
-                    # There is an arc between those vertices if and only if i,ind_i and j,ind_j are consistent.
-                    if O.extensions_are_consistent(i, ind_i, j, ind_j):
-                        incidences[offset_i + ind_i][offset_j+ ind_j] = True
-                        incidences[offset_j + ind_j][offset_i+ ind_i] = True
+    for v in range(k-1):
+        offset_v = first_per_part[v]
+        for s in range(O.n_extensions(v)):
+            for w in range(v):
+                offset_w = first_per_part[w]
+                for t in range(O.n_extensions(w)):
+                    # We add an arc between v, s and w, t unless we discover a contradiction to Proposition 3.10.
+                    # TODO: Relabel by Prop:Edges.
+                    if O.extensions_are_consistent(v, s, w, t):
+                        incidences[offset_v + s][offset_w + t] = True
+                        incidences[offset_w + t][offset_v + s] = True
 
     cdef KPartiteKClique* K = new KPartiteKClique(incidences, n, first_per_part, k)
     try:
