@@ -332,9 +332,7 @@ cdef class Chirotope:
         such that the lines ab and cd intersect
         and there could be a Tverberg partition with this intersection point.
 
-        See Lemma 2.4.
-
-        TODO: Relabel to Lem:IntersectionPoints.
+        See Lemma 2.10.
         """
         cdef int a,b,c,d
         cdef tuple y
@@ -376,8 +374,6 @@ cdef class Chirotope:
         identify two or more extensions.
 
         Also, we do not check all axioms. So some extensions might not even be valid.
-
-        TODO: Relabel to Lem:OppositeRegions and Prop:OppositeRegions.
         """
         # We put each of the remaining 6 points in the correct region induced by ab and cd.
         # i and j lie in opposite regions, if
@@ -398,16 +394,13 @@ cdef class Chirotope:
                     if self.chi[i][j][a] == self.chi[i][j][b]:
                         # The line ij doesn't intersect the line ab.
                         # See Proposition 3.8.
-                        # TODO: Relabel by Prop:NonCrossing.
                         forced_chi[(i, j, y)] = self.chi[i][j][a]
                     elif self.chi[i][j][c] == self.chi[i][j][d]:
                         # The line ij doesn't intersect the line cd.
                         # See Proposition 3.8.
-                        # TODO: Relabel by Prop:NonCrossing.
                         forced_chi[(i, j, y)] = self.chi[i][j][c]
                     else:
                         # Apply Proposition 3.7 (2).
-                        # TODO: Relabel by Prop:ExtensionObstruction.
                         t, u = (0, 3) if (r, s) == (1, 2) else (1, 2)
 
                         tmp = self.chi[a][b][c] * self.chi[c][d][i] * self.chi[a][b][i]
@@ -451,7 +444,6 @@ cdef class Chirotope:
             if i1 != i2 and j1 != j2:
                 # All 4 points i1, i2, j1, j2 are distinct.
                 # Apply Proposition 3.9.
-                # TODO: Relabel to Prop:AdvanceExtensionObstruction.
                 one_val = self.chi[i1][j1][i2]
                 two_val = self.chi[i1][j1][j2]
                 if one_val == two_val:
@@ -467,7 +459,6 @@ cdef class Chirotope:
                     implications[two][-one_val].append(one)
 
             # Apply Proposition 3.7 (1).
-            # TODO: Relabel by Prop:ExtensionObstruction.
             # chi(i, j, y) != chi(i, j, k)
             # implies chi(i, j, y) == chi(i, k, y).
             elif j1 != j2:
@@ -494,7 +485,7 @@ cdef class Chirotope:
                 # Contradicts the predetermined choices from above.
                 continue
 
-            for i in range(n_opposed -1):
+            for i in range(n_opposed - 1):
                 val = chi[i]
 
                 if not all(chi[k] == val for k in implications[i][val]):
@@ -559,8 +550,6 @@ cdef class Chirotope:
         They are not consistent, if they contradict Proposition 3.10.
         Otherwise we will assume them to be consistent.
         So we might return false positives, but not false negatives.
-
-        TODO: Relabel by Prop:Edges.
         """
         cdef int a1, b1, c1, d1, a2, b2, c2, d2, n
 
@@ -612,7 +601,6 @@ cdef class Chirotope:
         if above_below1[two] == above_below2[one]:
             # Special case of Proposition 3.10:
             # chi(c1, d1, y2) != chi(c2, d2, y1)
-            # TODO: Relabel by Prop:Edges.
             return False
 
         for index in range(55):
@@ -620,7 +608,6 @@ cdef class Chirotope:
                 # With chi(c2, d2, y1) != 0 the following is a contradiction:
                 # -chi(i, j, y1) == chi(c2, d2, y1) == chi(i, j, y2).
                 # by Proposition 3.10.
-                # TODO: Relabel by Prop:edges
                 return False
 
         return True
@@ -670,7 +657,7 @@ cdef class Chirotope:
         chi, a1, b1, c1, d1 = self.obtain_extension(v, s)
         y = ((a1, b1), (c1, d1))
 
-        # Let c1,d1 be the other section of the intersection point.
+        # Let c1, d1 be the other section of the intersection point.
         if a == c1:
             c1 = a1
             d1 = b1
@@ -712,13 +699,11 @@ cdef class Chirotope:
                 # Note that i != d as chi[a][b][i] != chi[a][b][d].
                 # Apply Lemma 3.2:
                 # chi(i, j, y) = chi(c, j, y) = chi(c, j, d)
-                # TODO: Relabel by Lem:PointInSegment
                 above_below[index] = self.chi[c][j][d]
             elif j == d:
                 # Note that j != c.
                 # Apply Lemma 3.2:
                 # chi(i, j, y) = chi(i, d, y) = chi(i, d, c)
-                # TODO: Relabel by Lem:PointInSegment
                 above_below[index] = self.chi[i][d][c]
             else:
                 # i and j are in neighboring regions.
@@ -726,7 +711,6 @@ cdef class Chirotope:
                 # chi(a, b, i) != chi(a, b, j) and chi(c, d, i) == chi(c, d, j)
                 # implies
                 # chi(i, j, y) == -chi(c, d, a) * chi(a, b, j) * chi(c, d, i)
-                # TODO: Relabel by Lem:SameSide
                 above_below[index] = -self.chi[c][d][a] * self.chi[a][b][j] * self.chi[c][d][i]
 
         return tuple(above_below), index_cd
@@ -761,17 +745,14 @@ cdef class Chirotope:
             a = others[0]
             for b, c in combinations(others[1:], 2):
                 # We apply Lemma 2.7 to check whether x in conv(a, b, c).
-                # TODO: Relabel according to \ref{Lem:Restriction}.
                 if self.chi[a][b][x] == self.chi[b][c][x] == self.chi[c][a][x]:
                     others1 = tuple(i for i in range(10) if not i in (x,a,b,c))
                     d = others1[0]
                     for e, f in combinations(others1[1:], 2):
                         # We apply Lemma 2.7 to check whether x in conv(d, e, f).
-                        # TODO: Relabel according to \ref{Lem:Restriction}.
                         if self.chi[d][e][x] == self.chi[e][f][x] == self.chi[f][d][x]:
                             g, h, i = tuple(i for i in range(10) if not i in (x,a,b,c,d,e,f))
                             # We apply Lemma 2.7 to check whether x in conv(g, h, i).
-                            # TODO: Relabel according to \ref{Lem:Restriction}.
                             if self.chi[g][h][x] == self.chi[h][i][x] == self.chi[i][g][x]:
                                 yield ((x,), (a,b,c), (d,e,f), (g,h,i))
 
@@ -825,8 +806,6 @@ cdef class Chirotope:
         # If i, j, k can not be relabeld as above, then
         # none of e, f, g, are in opposite regions and by
         # Lemma 3.5, y is not in the convex hull of e, f, g.
-
-        # TODO: Relabel to Lem:OppositeRegions and Prop:OppositeRegions.
 
         return False
 
@@ -898,8 +877,6 @@ def poss_color_finder(Chirotope O):
     We check H to verify that G has not a k-clique.
 
     Doing this for all acyclic chirotope on 10 points of rank 3, we verify Proposition 2.14.
-
-    TODO: Relabel by Prop:KClique and Lem:EnlargedGraph.
     """
     cdef MemoryAllocator mem = MemoryAllocator()
     cdef int v, w, s, t, offset_v, offset_w
@@ -945,7 +922,6 @@ def poss_color_finder(Chirotope O):
                 offset_w = first_per_part[w]
                 for t in range(O.n_extensions(w)):
                     # We add an arc between v, s and w, t unless we discover a contradiction to Proposition 3.10.
-                    # TODO: Relabel by Prop:Edges.
                     if O.extensions_are_consistent(v, s, w, t):
                         incidences[offset_v + s][offset_w + t] = True
                         incidences[offset_w + t][offset_v + s] = True
